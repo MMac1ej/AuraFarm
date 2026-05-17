@@ -1,0 +1,8 @@
+build/
+install/
+log/
+__pycache__/
+*.pyc
+.colcon_build_cache/
+*.bag
+*.db3
