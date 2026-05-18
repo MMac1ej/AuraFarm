@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'nav_to_crop = aurafarm_navigation_dt.nav_to_crop:main',
+            'robot_dt_bridge = aurafarm_navigation_dt.robot_dt_bridge:main',
         ],
     },
 )
