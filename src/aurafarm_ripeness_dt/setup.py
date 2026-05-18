@@ -24,6 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'ripeness_decision = aurafarm_ripeness_dt.ripeness_decision_node:main',
         ],
     },
 )
