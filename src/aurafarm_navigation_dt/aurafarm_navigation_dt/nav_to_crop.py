@@ -4,14 +4,15 @@ from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 from geometry_msgs.msg import PoseStamped
 from std_msgs.msg import Int32, String
 from rclpy.duration import Duration
+import time
 
 CROP_POSITIONS = [
-    (-1.5, -1.0),
-    ( 0.5,  1.0),
+    (-1.5,  0.0),
+    ( 0.4,  0.8),
     ( 0.9, -1.0),
     (-2.0, -3.0),
     (-2.4, -0.5),
-    (-1.0, -1.2),
+    (-1.3, -1.5),
     (-1.0, -3.0),
 ]
 
@@ -28,45 +29,55 @@ def main():
     rclpy.init()
     node = Node('nav_to_crop_node')
 
-    # Publishes crop ID when robot arrives
     arrival_pub = node.create_publisher(Int32, '/aurafarm/crop_arrival', 10)
-
-    # Listens for harvest decision before moving to next crop
     latest_decision = {'value': None}
 
     def decision_callback(msg):
         latest_decision['value'] = msg.data
         node.get_logger().info(f'Decision received: {msg.data}')
 
-    node.create_subscription(String, '/aurafarm/harvest_decision', decision_callback, 10)
+    node.create_subscription(
+        String,
+        '/aurafarm/harvest_decision',
+        decision_callback,
+        10
+    )
 
     nav = BasicNavigator()
-    nav.setInitialPose(make_pose(nav, 0.0, 0.0))
     nav.waitUntilNav2Active()
+
+    print('Waiting for sensor and decision nodes...')
+    time.sleep(3.0)
+    print('Starting crop tour...')
 
     for crop_id, (x, y) in enumerate(CROP_POSITIONS):
         print(f'Navigating to crop {crop_id + 1} at ({x}, {y})')
         nav.goToPose(make_pose(nav, x, y))
 
+        # Navigate without spin_once interference
         while not nav.isTaskComplete():
             feedback = nav.getFeedback()
             if feedback:
-                remaining = Duration.from_msg(feedback.estimated_time_remaining).nanoseconds / 1e9
+                remaining = Duration.from_msg(
+                    feedback.estimated_time_remaining
+                ).nanoseconds / 1e9
                 print(f'ETA: {remaining:.1f}s')
-            rclpy.spin_once(node, timeout_sec=0.1)
 
         result = nav.getResult()
+
         if result == TaskResult.SUCCEEDED:
             print(f'Arrived at crop {crop_id + 1}!')
+            time.sleep(0.5)
 
-            # Publish arrival so sensor node generates a reading
+            # Publish arrival
             msg = Int32()
             msg.data = crop_id
             arrival_pub.publish(msg)
 
-            # Wait up to 5 seconds for decision
+            # Spin to process decision — only after navigation is complete
             latest_decision['value'] = None
-            for _ in range(50):
+            deadline = time.time() + 10.0
+            while time.time() < deadline:
                 rclpy.spin_once(node, timeout_sec=0.1)
                 if latest_decision['value'] is not None:
                     break
