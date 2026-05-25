@@ -24,8 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'simulated_ripeness_sensor = aurafarm_field_dt.SimulatedRipenessSensorNode:main',
-            'ripeness_map = aurafarm_field_dt.RipenessMapNode:main',
+            'plant_simulator = aurafarm_field_dt.PlantSimulatorNode:main',
+            'dynamic_crop_map = aurafarm_field_dt.DynamicCropMapNode:main',
         ],
     },
 )

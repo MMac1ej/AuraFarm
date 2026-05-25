@@ -2,7 +2,6 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 import math
-import time
 
 # Plant configuration — DT knows these rates
 PLANT_TYPES = {
@@ -33,8 +32,8 @@ PLANTS = [
 ]
 
 BASE_POSITION = (0.0, 0.0)
-ROBOT_SPEED = 0.22       # m/s — TurtleBot burger default
-ROBOT_CAPACITY = 5       # max fruits before returning to base
+ROBOT_SPEED = 0.22
+ROBOT_CAPACITY = 5
 
 
 class DynamicCropMapNode(Node):
@@ -48,7 +47,7 @@ class DynamicCropMapNode(Node):
         self.plant_pos = {p[0]: p[2] for p in PLANTS}
 
         # --- Farmer thresholds ---
-        self.thresholds = {'A': 0.8, 'B': 0.9}  # defaults
+        self.thresholds = {'A': 0.8, 'B': 0.9}
         self.thresholds_received = False
 
         # --- Robot state ---
@@ -57,16 +56,12 @@ class DynamicCropMapNode(Node):
         self.robot_battery = 100.0
 
         # --- Phase tracking ---
-        # 'waiting'  — waiting for farmer thresholds
-        # 'scanning' — initial scan in progress
-        # 'harvesting' — dynamic harvesting loop
         self.phase = 'waiting'
         self.initial_scan_complete = False
         self.plants_scanned = set()
 
         # --- Second scan tracking ---
-        # When DT sends harvest command, waits for second scan result
-        self.awaiting_second_scan = None  # plant_id
+        self.awaiting_second_scan = None
         self.second_scan_result = None
 
         # --- Publishers ---
@@ -78,6 +73,9 @@ class DynamicCropMapNode(Node):
         )
         self.crop_map_pub = self.create_publisher(
             String, '/aurafarm/crop_map', 10
+        )
+        self.phase_pub = self.create_publisher(
+            String, '/aurafarm/phase', 10
         )
 
         # --- Subscribers ---
@@ -107,9 +105,7 @@ class DynamicCropMapNode(Node):
         )
 
         # --- Timers ---
-        # Update simulated ripeness every second
         self.create_timer(1.0, self.update_simulated_ripeness)
-        # Publish crop map every second
         self.create_timer(1.0, self.publish_crop_map)
 
         self.get_logger().info(
@@ -120,7 +116,6 @@ class DynamicCropMapNode(Node):
     # FARMER THRESHOLDS
     # ================================================================
     def on_farmer_thresholds(self, msg: String):
-        # Parse "A:0.8,B:0.9"
         try:
             for part in msg.data.split(','):
                 plant_type, value = part.split(':')
@@ -136,7 +131,6 @@ class DynamicCropMapNode(Node):
                 'Phase: SCANNING — starting initial scan tour'
             )
 
-            # Send robot to first plant
             self.send_next_scan_target()
 
         except Exception as e:
@@ -146,7 +140,6 @@ class DynamicCropMapNode(Node):
     # INITIAL SCAN
     # ================================================================
     def send_next_scan_target(self):
-        # Find next unscanned plant
         for plant_id, _, (x, y) in PLANTS:
             if plant_id not in self.plants_scanned:
                 msg = String()
@@ -157,16 +150,21 @@ class DynamicCropMapNode(Node):
                 )
                 return
 
-        # All plants scanned — switch to harvesting phase
+        # All plants scanned — switch to harvesting
         self.initial_scan_complete = True
         self.phase = 'harvesting'
         self.get_logger().info(
             'Initial scan complete — Phase: HARVESTING'
         )
+
+        # Notify nav node of phase change
+        phase_msg = String()
+        phase_msg.data = 'harvesting'
+        self.phase_pub.publish(phase_msg)
+
         self.send_next_harvest_target()
 
     def on_plant_scan(self, msg: String):
-        # Parse "plant_id:ripeness"
         try:
             parts = msg.data.split(':')
             plant_id = int(parts[0])
@@ -174,7 +172,7 @@ class DynamicCropMapNode(Node):
         except Exception:
             return
 
-        # Second scan result — DT asked for this before harvesting
+        # Second scan result
         if self.awaiting_second_scan == plant_id:
             self.second_scan_result = ripeness
             self.process_second_scan(plant_id, ripeness)
@@ -215,7 +213,6 @@ class DynamicCropMapNode(Node):
             self.get_logger().warn('Battery below 10% — stopping')
             return None
 
-        # Return to base if at capacity
         if self.robot_capacity >= ROBOT_CAPACITY:
             self.get_logger().info(
                 f'Capacity full ({self.robot_capacity}/{ROBOT_CAPACITY})'
@@ -237,25 +234,20 @@ class DynamicCropMapNode(Node):
             sim_ripe = self.simulated_ripeness[plant_id]
             rate = PLANT_TYPES[plant_type]['simulated_growth_rate']
 
-            # Straight line distance
             distance = math.sqrt((px - rx)**2 + (py - ry)**2)
             travel_time = distance / ROBOT_SPEED
 
-            # Predicted ripeness when robot arrives
             predicted_ripeness = min(
                 1.0, sim_ripe + rate * travel_time
             )
 
-            # Score: only consider plants at or above threshold
-            # (now or by the time robot arrives)
             if predicted_ripeness >= threshold:
                 score = predicted_ripeness
             elif sim_ripe >= threshold:
                 score = sim_ripe
             else:
-                continue  # not worth going yet
+                continue
 
-            # Pick highest score, distance as tiebreaker
             if (score > best_score or
                     (score == best_score and distance < best_distance)):
                 best_plant = plant_id
@@ -298,16 +290,14 @@ class DynamicCropMapNode(Node):
             f'threshold={threshold}'
         )
 
-        # Ask for second scan when robot arrives
+        # Ask PlantSimulator for second scan
         self.awaiting_second_scan = plant_id
-
-        # Also send harvest command so PlantSimulator does second scan
         harvest_msg = String()
         harvest_msg.data = f'{plant_id}:HARVEST'
         self.harvest_cmd_pub.publish(harvest_msg)
 
     # ================================================================
-    # SECOND SCAN — verify true ripeness before harvesting
+    # SECOND SCAN
     # ================================================================
     def process_second_scan(self, plant_id: int, true_ripeness: float):
         plant_type = self.plant_type[plant_id]
@@ -324,7 +314,6 @@ class DynamicCropMapNode(Node):
         self.awaiting_second_scan = None
 
         if true_ripeness >= threshold:
-            # Truly ripe — confirm harvest
             cmd_msg = String()
             cmd_msg.data = f'{plant_id}:CONFIRMED'
             self.harvest_cmd_pub.publish(cmd_msg)
@@ -332,7 +321,6 @@ class DynamicCropMapNode(Node):
                 f'Plant {plant_id} confirmed ripe → HARVEST'
             )
         else:
-            # DT was wrong — skip this plant, update simulated ripeness
             self.simulated_ripeness[plant_id] = true_ripeness
             cmd_msg = String()
             cmd_msg.data = f'{plant_id}:SKIP'
@@ -342,7 +330,6 @@ class DynamicCropMapNode(Node):
                 f'(true={true_ripeness:.3f} < threshold={threshold}) '
                 f'— DT model corrected → SKIP'
             )
-            # Recalculate and send next target
             self.send_next_harvest_target()
 
     # ================================================================
@@ -354,7 +341,6 @@ class DynamicCropMapNode(Node):
         except ValueError:
             return
 
-        # Reset simulated ripeness
         self.simulated_ripeness[plant_id] = 0.0
         self.robot_capacity += 1
 
@@ -363,14 +349,12 @@ class DynamicCropMapNode(Node):
             f'capacity: {self.robot_capacity}/{ROBOT_CAPACITY}'
         )
 
-        # Send next target
         self.send_next_harvest_target()
 
     # ================================================================
     # ROBOT STATUS
     # ================================================================
     def on_robot_status(self, msg: String):
-        # Parse "x:y:capacity:battery"
         try:
             parts = msg.data.split(':')
             self.robot_pos = (float(parts[0]), float(parts[1]))

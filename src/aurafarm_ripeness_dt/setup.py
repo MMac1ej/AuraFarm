@@ -23,9 +23,9 @@ setup(
         ],
     },
     entry_points={
-    'console_scripts': [
-        'ripeness_decision = aurafarm_ripeness_dt.ripeness_decision_node:main',
-        'twin_state_monitor = aurafarm_ripeness_dt.twin_state_monitor:main',
-    ],
-},
+        'console_scripts': [
+            'farmer_input = aurafarm_ripeness_dt.farmer_input_node:main',
+            'twin_state_monitor = aurafarm_ripeness_dt.twin_state_monitor:main',
+        ],
+    },
 )
