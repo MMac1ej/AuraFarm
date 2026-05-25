@@ -5,10 +5,12 @@ from geometry_msgs.msg import PoseStamped
 from std_msgs.msg import String
 from rclpy.duration import Duration
 import time
+import math
 
 BASE_POSITION = (0.0, 0.0)
 ROBOT_SPEED = 0.22
 ROBOT_CAPACITY = 5
+ARRIVAL_RADIUS = 0.2
 
 
 def make_pose(nav, x, y):
@@ -43,6 +45,9 @@ def main():
     robot_status_pub = node.create_publisher(
         String, '/aurafarm/robot_status', 10
     )
+    base_arrived_pub = node.create_publisher(
+        String, '/aurafarm/base_arrived', 10
+    )
 
     # --- Subscribers ---
     def on_next_target(msg: String):
@@ -55,6 +60,9 @@ def main():
         node.get_logger().info(f'New target received: {msg.data}')
 
     def on_harvest_command(msg: String):
+        # Only store CONFIRMED or SKIP — HARVEST is for PlantSimulatorNode
+        if ':HARVEST' in msg.data and ':CONFIRMED' not in msg.data:
+            return
         harvest_command['value'] = msg.data
         node.get_logger().info(f'Harvest command: {msg.data}')
 
@@ -86,10 +94,6 @@ def main():
     nav.waitUntilNav2Active()
     node.get_logger().info('Nav2 active')
 
-    initial_pose = make_pose(nav, 0.0, 0.0)
-    nav.setInitialPose(initial_pose)
-    time.sleep(2.0)
-
     # --- Helper: publish robot status ---
     def publish_status():
         msg = String()
@@ -114,6 +118,23 @@ def main():
                 ).nanoseconds / 1e9
                 print(f'ETA to {label}: {remaining:.1f}s')
 
+                # Proximity check
+                current_x = feedback.current_pose.pose.position.x
+                current_y = feedback.current_pose.pose.position.y
+                distance = math.sqrt(
+                    (current_x - x)**2 + (current_y - y)**2
+                )
+                if distance <= ARRIVAL_RADIUS:
+                    nav.cancelTask()
+                    robot_pos['x'] = current_x
+                    robot_pos['y'] = current_y
+                    publish_status()
+                    node.get_logger().info(
+                        f'Within {ARRIVAL_RADIUS}m of {label} '
+                        f'— arrived (distance={distance:.2f}m)'
+                    )
+                    return TaskResult.SUCCEEDED
+
         robot_pos['x'] = x
         robot_pos['y'] = y
         publish_status()
@@ -121,7 +142,10 @@ def main():
 
     # --- Helper: wait for next target ---
     def wait_for_target(timeout=60.0):
-        current_target['plant_id'] = None
+    # Don't clear if target already received while processing previous plant
+        if current_target['plant_id'] is not None:
+            return current_target.copy()
+
         deadline = time.time() + timeout
         while current_target['plant_id'] is None:
             rclpy.spin_once(node, timeout_sec=0.1)
@@ -129,6 +153,50 @@ def main():
                 print('No target received — waiting...')
                 deadline = time.time() + timeout
         return current_target.copy()
+
+    # --- Helper: process harvest logic ---
+    def process_harvest(plant_id_int):
+        print(
+            f'Waiting for harvest decision on '
+            f'plant {plant_id_int}...'
+        )
+        harvest_command['value'] = None
+        deadline = time.time() + 15.0
+        while time.time() < deadline:
+            rclpy.spin_once(node, timeout_sec=0.1)
+            if harvest_command['value'] is not None:
+                break
+
+        if harvest_command['value'] is None:
+            print(f'No harvest command — moving on')
+            return
+
+        cmd_parts = harvest_command['value'].split(':')
+        cmd_plant_id = int(cmd_parts[0])
+        cmd_action = cmd_parts[1]
+
+        if cmd_plant_id != plant_id_int:
+            print(f'Command mismatch — moving on')
+            return
+
+        if cmd_action == 'CONFIRMED':
+            print(f'Plant {plant_id_int} — HARVESTING')
+            capacity['count'] += 1
+
+            complete_msg = String()
+            complete_msg.data = str(plant_id_int)
+            harvest_complete_pub.publish(complete_msg)
+
+            battery['level'] -= 2.0
+            publish_status()
+
+            node.get_logger().info(
+                f'Harvested plant {plant_id_int} — '
+                f'capacity: {capacity["count"]}/{ROBOT_CAPACITY}'
+            )
+
+        elif cmd_action == 'SKIP':
+            print(f'Plant {plant_id_int} — SKIP')
 
     # ================================================================
     # MAIN LOOP
@@ -152,6 +220,11 @@ def main():
 
         # Wait for next target from DT
         target = wait_for_target()
+        target = wait_for_target()
+        current_target['plant_id'] = None  # clear after reading
+        plant_id = target['plant_id']
+        tx = target['x']
+        ty = target['y']
         plant_id = target['plant_id']
         tx = target['x']
         ty = target['y']
@@ -175,7 +248,13 @@ def main():
             capacity['count'] = 0
             publish_status()
             time.sleep(1.0)
-            node.get_logger().info('Deposited — resuming')
+
+            # Notify DT deposit complete
+            base_msg = String()
+            base_msg.data = 'done'
+            base_arrived_pub.publish(base_msg)
+
+            node.get_logger().info('Deposited — notified DT')
             continue
 
         plant_id_int = int(plant_id)
@@ -185,56 +264,29 @@ def main():
         arrival_msg.data = str(plant_id_int)
         arrival_pub.publish(arrival_msg)
 
-        # SCANNING phase — just publish arrival, no harvest command needed
+        # SCANNING phase — spin briefly to catch phase change
         if phase['value'] == 'scanning':
-            print(
-                f'Plant {plant_id_int} scanned — '
-                f'waiting for next scan target...'
-            )
-            continue
+            for _ in range(20):
+                rclpy.spin_once(node, timeout_sec=0.1)
+                if phase['value'] == 'harvesting':
+                    break
 
-        # HARVESTING phase — wait for CONFIRMED or SKIP
-        print(
-            f'Waiting for harvest decision on '
-            f'plant {plant_id_int}...'
-        )
-        harvest_command['value'] = None
-        deadline = time.time() + 15.0
-        while time.time() < deadline:
-            rclpy.spin_once(node, timeout_sec=0.1)
-            if harvest_command['value'] is not None:
-                break
+            if phase['value'] == 'scanning':
+                # Still scanning — move to next scan target
+                print(
+                    f'Plant {plant_id_int} scanned — '
+                    f'waiting for next scan target...'
+                )
+                continue
+            else:
+                # Phase just switched — fall through to harvest logic
+                print(
+                    f'Phase switched to harvesting at '
+                    f'plant {plant_id_int} — processing harvest...'
+                )
 
-        if harvest_command['value'] is None:
-            print(f'No harvest command — moving on')
-            continue
-
-        cmd_parts = harvest_command['value'].split(':')
-        cmd_plant_id = int(cmd_parts[0])
-        cmd_action = cmd_parts[1]
-
-        if cmd_plant_id != plant_id_int:
-            print(f'Command mismatch — moving on')
-            continue
-
-        if cmd_action == 'CONFIRMED':
-            print(f'Plant {plant_id_int} — HARVESTING')
-            capacity['count'] += 1
-
-            complete_msg = String()
-            complete_msg.data = str(plant_id_int)
-            harvest_complete_pub.publish(complete_msg)
-
-            battery['level'] -= 2.0
-            publish_status()
-
-            node.get_logger().info(
-                f'Harvested plant {plant_id_int} — '
-                f'capacity: {capacity["count"]}/{ROBOT_CAPACITY}'
-            )
-
-        elif cmd_action == 'SKIP':
-            print(f'Plant {plant_id_int} — SKIP')
+        # HARVESTING phase
+        process_harvest(plant_id_int)
 
     print('Harvesting tour ended')
     rclpy.shutdown()

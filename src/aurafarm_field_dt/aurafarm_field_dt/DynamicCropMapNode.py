@@ -5,30 +5,37 @@ import math
 
 # Plant configuration — DT knows these rates
 PLANT_TYPES = {
-    'A': {'simulated_growth_rate': 0.05},
-    'B': {'simulated_growth_rate': 0.03},
+    'A': {'simulated_growth_rate': 0.002},  # 0 → 1 in ~500 seconds (~8 min)
+    'B': {'simulated_growth_rate': 0.0015}, # 0 → 1 in ~667 seconds (~11 min)
 }
 
 PLANTS = [
-    # id, type, (x, y)
-    # Zone A
-    (0,  'A', (-0.45,  0.30)),
-    (1,  'A', (-0.45, -0.70)),
-    (2,  'A', (-0.45, -1.70)),
-    (3,  'A', (-0.45, -2.70)),
-    (4,  'A', ( 0.25,  0.30)),
-    (5,  'A', ( 0.25, -0.70)),
-    (6,  'A', ( 0.25, -1.70)),
-    (7,  'A', ( 0.25, -2.70)),
-    # Zone B
-    (8,  'B', ( 1.10,  0.30)),
-    (9,  'B', ( 1.10, -0.70)),
-    (10, 'B', ( 1.10, -1.70)),
-    (11, 'B', ( 1.10, -2.70)),
-    (12, 'B', ( 1.85,  0.30)),
-    (13, 'B', ( 1.85, -0.70)),
-    (14, 'B', ( 1.85, -1.70)),
-    (15, 'B', ( 1.85, -2.70)),
+    # Zone B first (robot starts at ~(-2, 0), Zone B is closest)
+    # y = 0.30 row
+    (0,  'B', (-2.20,  0.30)),
+    (1,  'B', (-1.90,  0.30)),
+    # y = -0.70 row
+    (2,  'B', (-2.20, -0.70)),
+    (3,  'B', (-1.90, -0.70)),
+    # y = -1.70 row
+    (4,  'B', (-2.20, -1.70)),
+    (5,  'B', (-1.90, -1.70)),
+    # y = -2.70 row
+    (6,  'B', (-2.20, -2.70)),
+    (7,  'B', (-1.90, -2.70)),
+    # Zone A second
+    # y = -2.70 row
+    (8,  'A', (-0.45, -2.70)),
+    (9,  'A', ( 0.25, -2.70)),
+    # y = -1.70 row
+    (10, 'A', ( 0.25, -1.70)),
+    (11, 'A', (-0.45, -1.70)),
+    # y = -0.70 row
+    (12, 'A', (-0.45, -0.70)),
+    (13, 'A', ( 0.25, -0.70)),
+    # y = 0.30 row
+    (14, 'A', ( 0.25,  0.30)),
+    (15, 'A', (-0.45,  0.30)),
 ]
 
 BASE_POSITION = (0.0, 0.0)
@@ -60,9 +67,13 @@ class DynamicCropMapNode(Node):
         self.initial_scan_complete = False
         self.plants_scanned = set()
 
-        # --- Second scan tracking ---
+        # --- Harvest tracking ---
+        self.current_harvest_target = None
         self.awaiting_second_scan = None
-        self.second_scan_result = None
+        self.waiting_for_harvest_complete = False
+
+        # --- Watchdog ---
+        self.last_target_time = self.get_clock().now()
 
         # --- Publishers ---
         self.next_target_pub = self.create_publisher(
@@ -80,33 +91,34 @@ class DynamicCropMapNode(Node):
 
         # --- Subscribers ---
         self.create_subscription(
-            String,
-            '/aurafarm/farmer_thresholds',
-            self.on_farmer_thresholds,
-            10
+            String, '/aurafarm/farmer_thresholds',
+            self.on_farmer_thresholds, 10
         )
         self.create_subscription(
-            String,
-            '/aurafarm/plant_scan',
-            self.on_plant_scan,
-            10
+            String, '/aurafarm/plant_scan',
+            self.on_plant_scan, 10
         )
         self.create_subscription(
-            String,
-            '/aurafarm/harvest_complete',
-            self.on_harvest_complete,
-            10
+            String, '/aurafarm/harvest_complete',
+            self.on_harvest_complete, 10
         )
         self.create_subscription(
-            String,
-            '/aurafarm/robot_status',
-            self.on_robot_status,
-            10
+            String, '/aurafarm/robot_status',
+            self.on_robot_status, 10
+        )
+        self.create_subscription(
+            String, '/aurafarm/base_arrived',
+            self.on_base_arrived, 10
+        )
+        self.create_subscription(
+            String, '/aurafarm/crop_arrival',
+            self.on_crop_arrival_harvest, 10
         )
 
         # --- Timers ---
         self.create_timer(1.0, self.update_simulated_ripeness)
         self.create_timer(1.0, self.publish_crop_map)
+        self.create_timer(5.0, self.watchdog_check)
 
         self.get_logger().info(
             'DynamicCropMapNode started — waiting for farmer thresholds'
@@ -130,7 +142,6 @@ class DynamicCropMapNode(Node):
             self.get_logger().info(
                 'Phase: SCANNING — starting initial scan tour'
             )
-
             self.send_next_scan_target()
 
         except Exception as e:
@@ -145,19 +156,18 @@ class DynamicCropMapNode(Node):
                 msg = String()
                 msg.data = f'{plant_id}:{x}:{y}'
                 self.next_target_pub.publish(msg)
+                self.last_target_time = self.get_clock().now()
                 self.get_logger().info(
                     f'Scan target: plant {plant_id} at ({x}, {y})'
                 )
                 return
 
-        # All plants scanned — switch to harvesting
+        # All plants scanned
         self.initial_scan_complete = True
         self.phase = 'harvesting'
         self.get_logger().info(
             'Initial scan complete — Phase: HARVESTING'
         )
-
-        # Notify nav node of phase change
         phase_msg = String()
         phase_msg.data = 'harvesting'
         self.phase_pub.publish(phase_msg)
@@ -174,7 +184,6 @@ class DynamicCropMapNode(Node):
 
         # Second scan result
         if self.awaiting_second_scan == plant_id:
-            self.second_scan_result = ripeness
             self.process_second_scan(plant_id, ripeness)
             return
 
@@ -192,6 +201,34 @@ class DynamicCropMapNode(Node):
 
             if self.phase == 'scanning':
                 self.send_next_scan_target()
+
+    # ================================================================
+    # CROP ARRIVAL — only used during harvesting phase
+    # ================================================================
+    def on_crop_arrival_harvest(self, msg: String):
+        if self.phase != 'harvesting':
+            return
+
+        try:
+            plant_id = int(msg.data)
+        except ValueError:
+            return
+
+        # Only respond if this is our current harvest target
+        if plant_id != self.current_harvest_target:
+            return
+
+        self.get_logger().info(
+            f'Robot arrived at harvest target plant {plant_id} '
+            f'— requesting second scan'
+        )
+
+        # Send harvest command to trigger second scan
+        self.awaiting_second_scan = plant_id
+        self.waiting_for_harvest_complete = True
+        harvest_msg = String()
+        harvest_msg.data = f'{plant_id}:HARVEST'
+        self.harvest_cmd_pub.publish(harvest_msg)
 
     # ================================================================
     # SIMULATED RIPENESS GROWTH
@@ -236,7 +273,6 @@ class DynamicCropMapNode(Node):
 
             distance = math.sqrt((px - rx)**2 + (py - ry)**2)
             travel_time = distance / ROBOT_SPEED
-
             predicted_ripeness = min(
                 1.0, sim_ripe + rate * travel_time
             )
@@ -257,6 +293,11 @@ class DynamicCropMapNode(Node):
         return best_plant
 
     def send_next_harvest_target(self):
+        self.last_target_time = self.get_clock().now()
+        self.waiting_for_harvest_complete = False
+        self.awaiting_second_scan = None
+        self.current_harvest_target = None
+
         target = self.calculate_optimal_target()
 
         if target is None:
@@ -278,9 +319,12 @@ class DynamicCropMapNode(Node):
         threshold = self.thresholds[self.plant_type[plant_id]]
         sim_ripe = self.simulated_ripeness[plant_id]
 
+        # Send navigation target only
+        # harvest command sent after robot arrives
         msg = String()
         msg.data = f'{plant_id}:{px}:{py}'
         self.next_target_pub.publish(msg)
+        self.current_harvest_target = plant_id
 
         self.get_logger().info(
             f'Optimal target: plant {plant_id} '
@@ -289,12 +333,6 @@ class DynamicCropMapNode(Node):
             f'simulated ripeness={sim_ripe:.3f}, '
             f'threshold={threshold}'
         )
-
-        # Ask PlantSimulator for second scan
-        self.awaiting_second_scan = plant_id
-        harvest_msg = String()
-        harvest_msg.data = f'{plant_id}:HARVEST'
-        self.harvest_cmd_pub.publish(harvest_msg)
 
     # ================================================================
     # SECOND SCAN
@@ -343,12 +381,34 @@ class DynamicCropMapNode(Node):
 
         self.simulated_ripeness[plant_id] = 0.0
         self.robot_capacity += 1
+        self.waiting_for_harvest_complete = False
+        self.current_harvest_target = None
 
         self.get_logger().info(
             f'Plant {plant_id} harvested — '
             f'capacity: {self.robot_capacity}/{ROBOT_CAPACITY}'
         )
 
+        if self.robot_capacity >= ROBOT_CAPACITY:
+            base_msg = String()
+            base_msg.data = f'BASE:{BASE_POSITION[0]}:{BASE_POSITION[1]}'
+            self.next_target_pub.publish(base_msg)
+            self.last_target_time = self.get_clock().now()
+            self.get_logger().info(
+                'Capacity full — sending robot to base'
+            )
+            return
+
+        self.send_next_harvest_target()
+
+    # ================================================================
+    # BASE ARRIVED
+    # ================================================================
+    def on_base_arrived(self, msg: String):
+        self.robot_capacity = 0
+        self.get_logger().info(
+            'Robot deposited at base — capacity reset, resuming harvesting'
+        )
         self.send_next_harvest_target()
 
     # ================================================================
@@ -362,6 +422,24 @@ class DynamicCropMapNode(Node):
             self.robot_battery = float(parts[3])
         except Exception:
             return
+
+    # ================================================================
+    # WATCHDOG — only retry if not waiting for harvest complete
+    # ================================================================
+    def watchdog_check(self):
+        if self.phase != 'harvesting':
+            return
+        if self.waiting_for_harvest_complete:
+            return
+        if self.current_harvest_target is not None:
+            return  # Robot is navigating to a target — don't retry
+        now = self.get_clock().now()
+        elapsed = (now - self.last_target_time).nanoseconds / 1e9
+        if elapsed > 15.0:
+            self.get_logger().warn(
+                f'No target sent in {elapsed:.0f}s — retrying'
+            )
+            self.send_next_harvest_target()
 
     # ================================================================
     # CROP MAP PUBLISHER
