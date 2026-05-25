@@ -26,6 +26,7 @@ CROP_POSITIONS = [
     ( 1.85, -1.70),
     ( 1.85, -2.70),
 ]
+DOCK_POSITION = (0.0, 0.0) #not sure of actual dock coordinates
 
 def make_pose(nav, x, y):
     pose = PoseStamped()
@@ -47,10 +48,25 @@ def main():
         latest_decision['value'] = msg.data
         node.get_logger().info(f'Decision received: {msg.data}')
 
+    #battery message
+    battery_low = {'value': False}
+
+    def battery_callback(msg):
+        if 'LOW' in msg.data or 'CRITICAL' in msg.data:
+            battery_low['value'] = True
+            node.get_logger().warn(f'Battery warning received: {msg.data}')
+
     node.create_subscription(
         String,
         '/aurafarm/harvest_decision',
         decision_callback,
+        10
+    )
+
+    node.create_subscription(
+        String,
+        '/aurafarm/dt_system_status',
+        battery_callback,
         10
     )
 
@@ -62,11 +78,38 @@ def main():
     print('Starting crop tour...')
 
     for crop_id, (x, y) in enumerate(CROP_POSITIONS):
+        if battery_low['value']:
+            print('Battery low. Returning to dock.')
+
+            dock_x, dock_y = DOCK_POSITION
+            nav.goToPose(make_pose(nav, dock_x, dock_y))
+
+            while not nav.isTaskComplete():
+                rclpy.spin_once(node, timeout_sec=0.1)
+
+            print('Returned to dock.')
+            break
         print(f'Navigating to crop {crop_id + 1} at ({x}, {y})')
         nav.goToPose(make_pose(nav, x, y))
 
         # Navigate without spin_once interference
         while not nav.isTaskComplete():
+            #battery to dock position
+            rclpy.spin_once(node, timeout_sec=0.1)
+
+            if battery_low['value']:
+                print('Battery low during navigation. Returning to dock.')
+                nav.cancelTask()
+
+                dock_x, dock_y = DOCK_POSITION
+                nav.goToPose(make_pose(nav, dock_x, dock_y))
+
+                while not nav.isTaskComplete():
+                    rclpy.spin_once(node, timeout_sec=0.1)
+
+                print('Returned to dock.')
+                rclpy.shutdown()
+                return
             feedback = nav.getFeedback()
             if feedback:
                 remaining = Duration.from_msg(
