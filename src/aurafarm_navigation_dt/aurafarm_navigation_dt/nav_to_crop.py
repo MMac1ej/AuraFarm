@@ -54,7 +54,7 @@ def main():
         parts = msg.data.split(':')
         if len(parts) != 3:
             return
-        current_target['plant_id'] = parts[0]``
+        current_target['plant_id'] = parts[0]
         current_target['x'] = float(parts[1])
         current_target['y'] = float(parts[2])
         node.get_logger().info(f'New target received: {msg.data}')
@@ -63,7 +63,7 @@ def main():
         # Only store CONFIRMED or SKIP — HARVEST is for PlantSimulatorNode
         if ':HARVEST' in msg.data and ':CONFIRMED' not in msg.data:
             return
-        harvest_c`ommand['value'] = msg.data
+        harvest_command['value'] = msg.data
         node.get_logger().info(f'Harvest command: {msg.data}')
 
     def on_farmer_thresholds(msg: String):
