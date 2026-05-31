@@ -66,7 +66,7 @@ colcon build --packages-select <package_name>
 
 ## Option A — Simulation Demo (Gazebo)
 
-Open 6 terminals, all attached to the container. Run in order:
+Open 7 terminals all attached to the container. **Run in this exact order:**
 
 ### Terminal 1 — Launch simulation world
 ```bash
@@ -77,24 +77,30 @@ cd /ws && source /opt/ros/jazzy/setup.bash && source /opt/turtlebot3_ws/install/
 ```bash
 cd /ws && source /opt/ros/jazzy/setup.bash && source /opt/turtlebot3_ws/install/setup.bash && source install/setup.bash && export TURTLEBOT3_MODEL=burger && ros2 launch turtlebot3_navigation2 navigation2.launch.py use_sim_time:=True map:=/ws/maps/CleanSimMap.yaml
 ```
-⚠️ Wait for RViz to open before continuing.
+⚠️ Wait for RViz to open. Set **2D Pose Estimate** before continuing.
 
-### Terminal 3 — Ripeness sensor node
+### Terminal 3 — Plant simulator (true ripeness)
 ```bash
-cd /ws && source install/setup.bash && ros2 run aurafarm_field_dt simulated_ripeness_sensor
+cd /ws && source install/setup.bash && ros2 run aurafarm_field_dt plant_simulator
 ```
 
-### Terminal 4 — Ripeness map node (Digital Twin state tracker)
+### Terminal 4 — Dynamic crop map (DT core)
 ```bash
-cd /ws && source install/setup.bash && ros2 run aurafarm_field_dt ripeness_map
+cd /ws && source install/setup.bash && ros2 run aurafarm_field_dt dynamic_crop_map
 ```
 
-### Terminal 5 — Decision node
+### Terminal 5 — Battery monitor
 ```bash
-cd /ws && source install/setup.bash && ros2 run aurafarm_ripeness_dt ripeness_decision
+cd /ws && source install/setup.bash && ros2 run aurafarm_ripeness_dt twin_state_monitor
 ```
 
-### Terminal 6 — Navigation node (starts crop tour)
+### Terminal 6 — Farmer input (run this before Terminal 7)
+```bash
+cd /ws && source install/setup.bash && ros2 run aurafarm_ripeness_dt farmer_input
+```
+You will be prompted to enter ripeness thresholds for each plant type:
+
+### Terminal 7 — Navigation node (run after farmer input confirms)
 ```bash
 cd /ws && source install/setup.bash && export TURTLEBOT3_MODEL=burger && ros2 run aurafarm_navigation_dt nav_to_crop
 ```

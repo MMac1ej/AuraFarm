@@ -17,8 +17,8 @@ class SafetyStopNode(Node):
         self.declare_parameter("output_cmd_vel_topic", "/cmd_vel")
 
         self.declare_parameter("front_angle_deg", 50.0)
-        self.declare_parameter("stop_distance", 0.35)
-        self.declare_parameter("slow_distance", 0.60)
+        self.declare_parameter("stop_distance", 0.05)
+        self.declare_parameter("slow_distance", 0.15)
         self.declare_parameter("enable_slowdown", True)
 
         self.latest_scan = None

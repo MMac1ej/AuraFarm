@@ -29,6 +29,8 @@ def main():
 
     node.declare_parameter('cancel_if_safety_stop_exceeds_sec', 0.0)
     node.declare_parameter('safety_log_period_sec', 1.0)
+    node.declare_parameter('safety_stop_topic', '/aurafarm/safety_stop')
+    node.declare_parameter('safety_distance_topic', '/aurafarm/safety_distance')
 
     # --- State ---
     current_target = {'plant_id': None, 'x': None, 'y': None}
@@ -37,6 +39,12 @@ def main():
     capacity = {'count': 0}
     battery = {'level': 100.0}
     phase = {'value': 'waiting'}
+    safety = {
+        'stop_active': False,
+        'nearest_distance': float('inf'),
+        'stop_started_at': None,
+        'last_log_at': 0.0,
+    }
 
     # --- Publishers ---
     arrival_pub = node.create_publisher(
@@ -107,6 +115,40 @@ def main():
             f'{battery["level"]:.1f}'
         )
         robot_status_pub.publish(msg)
+        
+    # --- Helper: monitor safety node while Nav2 is navigating ---
+    def monitor_safety_during_navigation(label):
+        now = time.time()
+        log_period = float(
+            node.get_parameter('safety_log_period_sec').value
+        )
+        cancel_after = float(
+            node.get_parameter('cancel_if_safety_stop_exceeds_sec').value
+        )
+
+        if safety['stop_active']:
+            if now - safety['last_log_at'] >= log_period:
+                node.get_logger().warn(
+                    f'Safety stop active while going to {label}; '
+                    f'nearest obstacle: '
+                    f'{safety["nearest_distance"]:.2f} m'
+                )
+                safety['last_log_at'] = now
+
+            # Optional: cancel the Nav2 task if the robot is blocked for too long.
+            # A value of 0.0 disables cancellation and lets Nav2 keep trying.
+            if cancel_after > 0.0 and safety['stop_started_at'] is not None:
+                blocked_for = now - safety['stop_started_at']
+                if blocked_for >= cancel_after:
+                    node.get_logger().warn(
+                        f'Canceling navigation to {label}; '
+                        f'safety stop has been active for '
+                        f'{blocked_for:.1f}s'
+                    )
+                    nav.cancelTask()
+                    return True
+
+        return False
 
     # --- Helper: navigate to position ---
     def navigate_to(x, y, label):
@@ -116,6 +158,12 @@ def main():
         while not nav.isTaskComplete():
             
             rclpy.spin_once(node, timeout_sec=0.05)
+            
+            if monitor_safety_during_navigation(label):
+                robot_pos['x'] = x
+                robot_pos['y'] = y
+                publish_status()
+                return TaskResult.CANCELED
 
             feedback = nav.getFeedback()
             if feedback:
@@ -141,10 +189,12 @@ def main():
                     )
                     return TaskResult.SUCCEEDED
 
-        robot_pos['x'] = x
-        robot_pos['y'] = y
-        publish_status()
-        return nav.getResult()
+        result = nav.getResult()
+        if result == TaskResult.SUCCEEDED:
+            robot_pos['x'] = x
+            robot_pos['y'] = y
+            publish_status()
+        return result
 
     # --- Helper: wait for next target ---
     def wait_for_target(timeout=60.0):
