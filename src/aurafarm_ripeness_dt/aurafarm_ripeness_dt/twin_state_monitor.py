@@ -8,7 +8,6 @@ class TwinStateMonitorNode(Node):
     def __init__(self):
         super().__init__('twin_state_monitor')
 
-        # Subscribe to physical robot battery state
         self.battery_sub = self.create_subscription(
             BatteryState,
             '/battery_state',
@@ -16,39 +15,58 @@ class TwinStateMonitorNode(Node):
             10
         )
 
-        # Publish mirrored battery state to DT topic
         self.battery_pub = self.create_publisher(
             BatteryState,
             '/aurafarm/dt_battery_state',
             10
         )
 
-        # Publish human readable system status
         self.status_pub = self.create_publisher(
             String,
             '/aurafarm/dt_system_status',
             10
         )
 
-        self.last_battery_percentage = None
+        self.last_logged_percentage = None
+        self.filtered_percentage = None
+
+        # Smaller value = smoother but slower response
+        self.smoothing_alpha = 0.1
+
         self.get_logger().info('TwinStateMonitor started')
 
+    def voltage_to_percentage(self, voltage):
+        # TurtleBot burger battery approximation
+        min_voltage = 11.0
+        max_voltage = 12.6
+
+        percentage = (voltage - min_voltage) / (max_voltage - min_voltage) * 100.0
+        return max(0.0, min(100.0, percentage))
+
     def on_battery_state(self, msg: BatteryState):
-        # Mirror battery state to DT
+        # Mirror original battery state to DT
         self.battery_pub.publish(msg)
 
-        # Calculate percentage — voltage based for TurtleBot burger
-        # TurtleBot burger battery: min ~11.0V, max ~12.6V
-        percentage = (msg.voltage - 11.0) / (12.6 - 11.0) * 100.0
-        percentage = max(0.0, min(100.0, percentage))
+        raw_percentage = self.voltage_to_percentage(msg.voltage)
 
-        # Only log when percentage changes significantly
-        if (self.last_battery_percentage is None or
-                abs(percentage - self.last_battery_percentage) > 1.0):
+        # Exponential moving average filter
+        if self.filtered_percentage is None:
+            self.filtered_percentage = raw_percentage
+        else:
+            self.filtered_percentage = (
+                self.smoothing_alpha * raw_percentage +
+                (1.0 - self.smoothing_alpha) * self.filtered_percentage
+            )
 
-            self.last_battery_percentage = percentage
+        percentage = self.filtered_percentage
 
-            # Determine battery health status
+        # Only log when displayed percentage changes significantly
+        if (
+            self.last_logged_percentage is None or
+            abs(percentage - self.last_logged_percentage) >= 1.0
+        ):
+            self.last_logged_percentage = percentage
+
             if percentage > 50.0:
                 battery_status = 'OK'
             elif percentage > 20.0:
@@ -56,13 +74,13 @@ class TwinStateMonitorNode(Node):
             else:
                 battery_status = 'CRITICAL'
 
-            # Publish system status string
             status_msg = String()
             status_msg.data = (
                 f'battery:{percentage:.1f}%:'
                 f'{battery_status}|'
                 f'voltage:{msg.voltage:.2f}V'
             )
+
             self.status_pub.publish(status_msg)
 
             self.get_logger().info(
