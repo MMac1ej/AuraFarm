@@ -66,7 +66,7 @@ colcon build --packages-select <package_name>
 
 ## Option A — Simulation Demo (Gazebo)
 
-Open 7 terminals all attached to the container. **Run in this exact order:**
+Open 8 terminals all attached to the container. **Run in this exact order:**
 
 ### Terminal 1 — Launch simulation world
 ```bash
@@ -94,13 +94,18 @@ cd /ws && source install/setup.bash && ros2 run aurafarm_field_dt dynamic_crop_m
 cd /ws && source install/setup.bash && ros2 run aurafarm_ripeness_dt twin_state_monitor
 ```
 
-### Terminal 6 — Farmer input (run this before Terminal 7)
+### Terminal 6 — Safe Navigation
+```bash
+cd /ws && source install/setup.bash && ros2 run aurafarm_safety_dt safety_stop_node
+
+
+### Terminal 7 — Farmer input (run this before Terminal 8)
 ```bash
 cd /ws && source install/setup.bash && ros2 run aurafarm_ripeness_dt farmer_input
 ```
 You will be prompted to enter ripeness thresholds for each plant type:
 
-### Terminal 7 — Navigation node (run after farmer input confirms)
+### Terminal 8 — Navigation node (run after farmer input confirms)
 ```bash
 cd /ws && source install/setup.bash && export TURTLEBOT3_MODEL=burger && ros2 run aurafarm_navigation_dt nav_to_crop
 ```
@@ -112,7 +117,7 @@ cd /ws && source install/setup.bash && export TURTLEBOT3_MODEL=burger && ros2 ru
 ### Step 1 — SSH into the robot
 Open a WSL terminal (not inside Docker):
 ```bash
-ssh ubuntu@<ROBOT_IP>
+ssh turtlebot@<ROBOT_IP>
 ```
 
 ### Step 2 — Launch bringup on the robot
@@ -126,7 +131,7 @@ Leave this terminal open.
 ### Step 3 — Launch navigation with real lab map
 In a container terminal on your laptop:
 ```bash
-cd /ws && source /opt/ros/jazzy/setup.bash && source /opt/turtlebot3_ws/install/setup.bash && source install/setup.bash && export TURTLEBOT3_MODEL=burger && ros2 launch turtlebot3_navigation2 navigation2.launch.py map:=/ws/maps/map.yaml
+cd /turtlebot3_ws/install && source /opt/ros/jazzy/setup.bash && source setup.bash && export TURTLEBOT3_MODEL=burger && ros2 launch turtlebot3_navigation2 navigation2.launch.py map:=/$HOME/map.yaml
 ```
 ⚠️ No `use_sim_time:=True` for the real robot.
 
@@ -136,9 +141,35 @@ cd /ws && source /opt/ros/jazzy/setup.bash && source /opt/turtlebot3_ws/install/
 3. Hold and drag to set the orientation
 4. Wait for the green particle cloud to appear
 
-### Step 5 — Teleop (to move robot manually)
+### Terminal 3 — Plant simulator (true ripeness)
 ```bash
-cd /ws && source install/setup.bash && export TURTLEBOT3_MODEL=burger && ros2 run turtlebot3_teleop teleop_keyboard
+cd /turtlebot3_ws/install && source setup.bash && ros2 run aurafarm_field_dt plant_simulator
+```
+
+### Terminal 4 — Dynamic crop map (DT core)
+```bash
+cd /turtlebot3_ws/install && source setup.bash && ros2 run aurafarm_field_dt dynamic_crop_map
+```
+
+### Terminal 5 — Safe Navigation
+```bash
+cd /turtlebot3_ws/install && source setup.bash && ros2 run aurafarm_safety_dt safety_stop_node
+```
+
+### Terminal 6 — Farmer input (run this before Terminal 7)
+```bash
+cd /turtlebot3_ws/install && source setup.bash && ros2 run aurafarm_ripeness_dt farmer_input
+```
+You will be prompted to enter ripeness thresholds for each plant type:
+
+### Terminal 7 — Navigation node (run after farmer input confirms)
+```bash
+cd /turtlebot3_ws/install && source setup.bash && export TURTLEBOT3_MODEL=burger && ros2 run aurafarm_navigation_dt nav_to_crop
+```
+
+### Step 8 — Teleop (to move robot manually)
+```bash
+cd /turtlebot3_ws/install && source setup.bash && export TURTLEBOT3_MODEL=burger && ros2 run turtlebot3_teleop teleop_keyboard
 ```
 
 | Key | Action |
@@ -150,7 +181,7 @@ cd /ws && source install/setup.bash && export TURTLEBOT3_MODEL=burger && ros2 ru
 | S / Space | Stop |
 | Ctrl+C | Quit |
 
-### Step 6 — Battery monitor
+### Step 9 — Battery monitor
 ```bash
 cd /ws && source install/setup.bash && ros2 run aurafarm_ripeness_dt twin_state_monitor
 ```
