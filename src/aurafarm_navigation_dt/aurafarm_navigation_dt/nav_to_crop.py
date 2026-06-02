@@ -142,7 +142,7 @@ def main():
 
     # --- Helper: wait for next target ---
     def wait_for_target(timeout=60.0):
-    # Don't clear if target already received while processing previous plant
+        # Don't clear if target already received while processing previous plant
         if current_target['plant_id'] is not None:
             return current_target.copy()
 
@@ -225,10 +225,7 @@ def main():
         plant_id = target['plant_id']
         tx = target['x']
         ty = target['y']
-        plant_id = target['plant_id']
-        tx = target['x']
-        ty = target['y']
-
+        
         # Navigate to target
         result = navigate_to(tx, ty, f'plant {plant_id}')
 

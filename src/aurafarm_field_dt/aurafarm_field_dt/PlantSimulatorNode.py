@@ -80,6 +80,11 @@ class PlantSimulatorNode(Node):
             self.on_harvest_command, 10
         )
 
+        self.true_map_pub = self.create_publisher(
+            String, '/aurafarm/true_ripeness_map', 10
+        )
+        self.create_timer(1.0, self.publish_true_map)
+
         self.create_timer(1.0, self.update_ripeness)
 
         self.get_logger().info('PlantSimulatorNode started')
@@ -163,6 +168,18 @@ class PlantSimulatorNode(Node):
         self.get_logger().info(
             f'Plant {plant_id} harvested — reset to 0.0'
         )
+
+    def publish_true_map(self):
+        entries = []
+        for plant_id, plant_type, _ in PLANTS:
+            if self.initialised[plant_id]:
+                entries.append(
+                    f'{plant_id}:{plant_type}:{self.true_ripeness[plant_id]:.3f}'
+                )
+        if entries:
+            msg = String()
+            msg.data = '|'.join(entries)
+            self.true_map_pub.publish(msg)
 
 
 def main(args=None):
