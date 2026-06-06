@@ -20,7 +20,7 @@ class RobotDTBridgeNode(Node):
         # /world/default/set_pose@ros_gz_interfaces/srv/SetEntityPose
         self.set_pose_client = self.create_client(
             SetEntityPose,
-            '/world/default/set_pose'
+            '/sim/world/default/set_pose'
         )
 
         # Subscribe to real robot odometry

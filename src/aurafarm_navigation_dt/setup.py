@@ -29,6 +29,7 @@ setup(
             'lidar_real = aurafarm_navigation_dt.lidar_real_node:main',
             'lidar_sim = aurafarm_navigation_dt.lidar_sim_node:main',
             'lidar_merger = aurafarm_navigation_dt.lidar_merger_node:main',
+            'sim_topic_relay = aurafarm_navigation_dt.sim_topic_relay_node:main',
         ],
     },
 )
