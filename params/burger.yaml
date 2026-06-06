@@ -36,7 +36,7 @@ amcl:
     z_max: 0.05
     z_rand: 0.5
     z_short: 0.05
-    scan_topic: scan
+    scan_topic: /aurafarm/merged_scan
     map_topic: map
     set_initial_pose: false
     always_reset_initial_pose: false
@@ -122,11 +122,9 @@ controller_server:
       debug_trajectory_details: true
       min_vel_x: 0.0
       min_vel_y: 0.0
-      #Changed max_vel_x 0.3 -> 1.0
-      max_vel_x: 1.0
+      max_vel_x: 0.3
       max_vel_y: 0.0
-      #Changed max_vel_theta 1.0 -> 2.0
-      max_vel_theta: 2.0
+      max_vel_theta: 1.0
       min_speed_xy: 0.0
       max_speed_xy: 0.3
       min_speed_theta: 0.0
@@ -184,7 +182,7 @@ local_costmap:
         enabled: true
         observation_sources: scan
         scan:
-          topic: /scan
+          topic: /aurafarm/merged_scan
           max_obstacle_height: 2.0
           clearing: true
           marking: true
@@ -200,7 +198,7 @@ local_costmap:
         mark_threshold: 0
         observation_sources: scan
         scan:
-          topic: /scan
+          topic: /aurafarm/merged_scan
           max_obstacle_height: 2.0
           clearing: true
           marking: true
@@ -230,7 +228,7 @@ global_costmap:
         enabled: true
         observation_sources: scan
         scan:
-          topic: /scan
+          topic: /aurafarm/merged_scan
           max_obstacle_height: 2.0
           clearing: true
           marking: true
@@ -250,7 +248,7 @@ global_costmap:
         mark_threshold: 0
         observation_sources: scan
         scan:
-          topic: /scan
+          topic: /aurafarm/merged_scan
           max_obstacle_height: 2.0
           clearing: true
           marking: true
@@ -415,7 +413,7 @@ collision_monitor:
     scan:
       source_timeout: 0.2
       type: "scan"
-      topic: "/scan"
+      topic: "/aurafarm/merged_scan"
       enabled: true
 
 velocity_smoother:
@@ -423,8 +421,7 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: false
     feedback: "OPEN_LOOP"
-    #Changed max_velocity [0.5, 0.0, 2.5] -> [1.0, 0.0, 2.5]
-    max_velocity: [1.0, 0.0, 2.5]
+    max_velocity: [0.5, 0.0, 2.5]
     min_velocity: [-0.5, 0.0, -2.5]
     deadband_velocity: [0.0, 0.0, 0.0]
     velocity_timeout: 1.0
