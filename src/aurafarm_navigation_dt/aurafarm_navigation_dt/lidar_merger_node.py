@@ -16,7 +16,7 @@ class LidarMergerNode(Node):
             LaserScan, '/real/scan', self.on_real_scan, 10
         )
         self.create_subscription(
-            LaserScan, '/aurafarm/sim_scan', self.on_sim_scan, 10
+            LaserScan, '/sim/scan', self.on_sim_scan, 10
         )
 
         # Publish merged scan — Nav2 will use this
@@ -38,11 +38,15 @@ class LidarMergerNode(Node):
         self.sim_scan = msg
 
     def merge_and_publish(self):
-        # Need at least real scan to publish
-        if self.real_scan is None:
+        if self.real_scan is None and self.sim_scan is None:
             return
 
-        # If no sim scan yet, just republish real scan
+        # Sim-only mode: no real robot connected, pass sim scan straight through
+        if self.real_scan is None:
+            self.merged_pub.publish(self.sim_scan)
+            return
+
+        # Real robot only (no virtual plants yet): pass real scan straight through
         if self.sim_scan is None:
             self.merged_pub.publish(self.real_scan)
             return
@@ -73,7 +77,7 @@ class LidarMergerNode(Node):
 
             # Find corresponding angle in sim scan
             angle = self.real_scan.angle_min + i * self.real_scan.angle_increment
-            sim_idx = int(
+            sim_idx = round(
                 (angle - self.sim_scan.angle_min) /
                 self.sim_scan.angle_increment
             )
