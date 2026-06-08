@@ -283,6 +283,19 @@ def main():
                 )
 
         # HARVESTING phase
+        # Spin briefly to catch any redirect sent during navigation
+        # (e.g. the plant spoiled while robot was en route)
+        for _ in range(10):
+            rclpy.spin_once(node, timeout_sec=0.05)
+
+        if current_target['plant_id'] is not None:
+            # DT sent a new target while we were navigating — skip harvest
+            node.get_logger().info(
+                f'Target redirected during navigation '
+                f'— skipping harvest of plant {plant_id_int}'
+            )
+            continue
+
         process_harvest(plant_id_int)
 
     print('Harvesting tour ended')

@@ -5,8 +5,8 @@ import math
 
 # Plant configuration — DT knows these rates
 PLANT_TYPES = {
-    'A': {'simulated_growth_rate': 0.002},  # 0 → 1 in ~500 seconds (~8 min)
-    'B': {'simulated_growth_rate': 0.0015}, # 0 → 1 in ~667 seconds (~11 min)
+    'A': {'simulated_growth_rate': 0.002},
+    'B': {'simulated_growth_rate': 0.0015},
 }
 
 PLANTS = [
@@ -41,6 +41,9 @@ PLANTS = [
 BASE_POSITION = (0.0, 0.0)
 ROBOT_SPEED = 0.22
 ROBOT_CAPACITY = 5
+SPOIL_THRESHOLD = 1.1
+EARLY_DEPARTURE_OFFSET = 0.1
+GOOD_HARVEST_TOLERANCE = 0.05
 
 
 class DynamicCropMapNode(Node):
@@ -71,6 +74,12 @@ class DynamicCropMapNode(Node):
         self.current_harvest_target = None
         self.awaiting_second_scan = None
         self.waiting_for_harvest_complete = False
+        self.last_true_ripeness = {}
+
+        # --- Statistics ---
+        self.harvested_total = 0
+        self.harvested_good = 0
+        self.spoiled_total = 0
 
         # --- Watchdog ---
         self.last_target_time = self.get_clock().now()
@@ -87,6 +96,9 @@ class DynamicCropMapNode(Node):
         )
         self.phase_pub = self.create_publisher(
             String, '/aurafarm/phase', 10
+        )
+        self.spoiled_pub = self.create_publisher(
+            String, '/aurafarm/plant_spoiled', 10
         )
 
         # --- Subscribers ---
@@ -162,7 +174,6 @@ class DynamicCropMapNode(Node):
                 )
                 return
 
-        # All plants scanned
         self.initial_scan_complete = True
         self.phase = 'harvesting'
         self.get_logger().info(
@@ -182,12 +193,10 @@ class DynamicCropMapNode(Node):
         except Exception:
             return
 
-        # Second scan result
         if self.awaiting_second_scan == plant_id:
             self.process_second_scan(plant_id, ripeness)
             return
 
-        # Initial scan result
         if not self.initialised[plant_id]:
             self.simulated_ripeness[plant_id] = ripeness
             self.initialised[plant_id] = True
@@ -214,7 +223,6 @@ class DynamicCropMapNode(Node):
         except ValueError:
             return
 
-        # Only respond if this is our current harvest target
         if plant_id != self.current_harvest_target:
             return
 
@@ -223,7 +231,6 @@ class DynamicCropMapNode(Node):
             f'— requesting second scan'
         )
 
-        # Send harvest command to trigger second scan
         self.awaiting_second_scan = plant_id
         self.waiting_for_harvest_complete = True
         harvest_msg = String()
@@ -231,16 +238,36 @@ class DynamicCropMapNode(Node):
         self.harvest_cmd_pub.publish(harvest_msg)
 
     # ================================================================
-    # SIMULATED RIPENESS GROWTH
+    # SIMULATED RIPENESS GROWTH + SPOILAGE DETECTION
     # ================================================================
     def update_simulated_ripeness(self):
         for plant_id, plant_type, _ in PLANTS:
-            if self.initialised[plant_id]:
-                rate = PLANT_TYPES[plant_type]['simulated_growth_rate']
-                self.simulated_ripeness[plant_id] = min(
-                    1.0,
-                    self.simulated_ripeness[plant_id] + rate
+            if not self.initialised[plant_id]:
+                continue
+
+            rate = PLANT_TYPES[plant_type]['simulated_growth_rate']
+            self.simulated_ripeness[plant_id] += rate
+
+            if self.simulated_ripeness[plant_id] > SPOIL_THRESHOLD:
+                self.simulated_ripeness[plant_id] = 0.0
+                self.spoiled_total += 1
+
+                spoil_msg = String()
+                spoil_msg.data = str(plant_id)
+                self.spoiled_pub.publish(spoil_msg)
+
+                self.get_logger().warn(
+                    f'Plant {plant_id} SPOILED (simulated >1.1) — '
+                    f'reset to 0.0'
                 )
+                self._log_stats()
+
+                if self.current_harvest_target == plant_id:
+                    self.current_harvest_target = None
+                    self.awaiting_second_scan = None
+                    self.waiting_for_harvest_complete = False
+                    if self.phase == 'harvesting':
+                        self.send_next_harvest_target()
 
     # ================================================================
     # OPTIMAL PATH CALCULATION
@@ -273,16 +300,15 @@ class DynamicCropMapNode(Node):
 
             distance = math.sqrt((px - rx)**2 + (py - ry)**2)
             travel_time = distance / ROBOT_SPEED
-            predicted_ripeness = min(
-                1.0, sim_ripe + rate * travel_time
-            )
+            predicted_ripeness = sim_ripe + rate * travel_time
 
-            if predicted_ripeness >= threshold:
-                score = predicted_ripeness
-            elif sim_ripe >= threshold:
-                score = sim_ripe
-            else:
+            # Start heading to plant when predicted ripeness reaches
+            # threshold - EARLY_DEPARTURE_OFFSET
+            trigger = threshold - EARLY_DEPARTURE_OFFSET
+            if predicted_ripeness < trigger:
                 continue
+
+            score = predicted_ripeness
 
             if (score > best_score or
                     (score == best_score and distance < best_distance)):
@@ -319,8 +345,6 @@ class DynamicCropMapNode(Node):
         threshold = self.thresholds[self.plant_type[plant_id]]
         sim_ripe = self.simulated_ripeness[plant_id]
 
-        # Send navigation target only
-        # harvest command sent after robot arrives
         msg = String()
         msg.data = f'{plant_id}:{px}:{py}'
         self.next_target_pub.publish(msg)
@@ -350,6 +374,7 @@ class DynamicCropMapNode(Node):
         )
 
         self.awaiting_second_scan = None
+        self.last_true_ripeness[plant_id] = true_ripeness
 
         if true_ripeness >= threshold:
             cmd_msg = String()
@@ -384,10 +409,19 @@ class DynamicCropMapNode(Node):
         self.waiting_for_harvest_complete = False
         self.current_harvest_target = None
 
+        # Statistics
+        self.harvested_total += 1
+        true_ripe = self.last_true_ripeness.get(plant_id, 0.0)
+        threshold = self.thresholds[self.plant_type[plant_id]]
+        if abs(true_ripe - threshold) <= GOOD_HARVEST_TOLERANCE:
+            self.harvested_good += 1
+
         self.get_logger().info(
             f'Plant {plant_id} harvested — '
+            f'true_ripeness={true_ripe:.3f}, '
             f'capacity: {self.robot_capacity}/{ROBOT_CAPACITY}'
         )
+        self._log_stats()
 
         if self.robot_capacity >= ROBOT_CAPACITY:
             base_msg = String()
@@ -424,7 +458,7 @@ class DynamicCropMapNode(Node):
             return
 
     # ================================================================
-    # WATCHDOG — only retry if not waiting for harvest complete
+    # WATCHDOG
     # ================================================================
     def watchdog_check(self):
         if self.phase != 'harvesting':
@@ -432,7 +466,7 @@ class DynamicCropMapNode(Node):
         if self.waiting_for_harvest_complete:
             return
         if self.current_harvest_target is not None:
-            return  # Robot is navigating to a target — don't retry
+            return
         now = self.get_clock().now()
         elapsed = (now - self.last_target_time).nanoseconds / 1e9
         if elapsed > 15.0:
@@ -440,6 +474,23 @@ class DynamicCropMapNode(Node):
                 f'No target sent in {elapsed:.0f}s — retrying'
             )
             self.send_next_harvest_target()
+
+    # ================================================================
+    # STATISTICS
+    # ================================================================
+    def _log_stats(self):
+        total_outcomes = self.harvested_total + self.spoiled_total
+        if total_outcomes == 0:
+            rate = 0.0
+        else:
+            rate = self.harvested_good / total_outcomes * 100.0
+
+        self.get_logger().info(
+            f'[STATS] harvested={self.harvested_total}, '
+            f'good={self.harvested_good}, '
+            f'spoiled={self.spoiled_total}, '
+            f'success_rate={rate:.1f}%'
+        )
 
     # ================================================================
     # CROP MAP PUBLISHER

@@ -2,7 +2,6 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 import random
-import time
 
 # Plant configuration
 PLANT_TYPES = {
@@ -79,12 +78,16 @@ class PlantSimulatorNode(Node):
             String, '/aurafarm/harvest_command',
             self.on_harvest_command, 10
         )
+        # Reset true ripeness when DT detects spoilage
+        self.create_subscription(
+            String, '/aurafarm/plant_spoiled',
+            self.on_plant_spoiled, 10
+        )
 
         self.true_map_pub = self.create_publisher(
             String, '/aurafarm/true_ripeness_map', 10
         )
         self.create_timer(1.0, self.publish_true_map)
-
         self.create_timer(1.0, self.update_ripeness)
 
         self.get_logger().info('PlantSimulatorNode started')
@@ -100,14 +103,9 @@ class PlantSimulatorNode(Node):
             )
 
     def update_ripeness(self):
-        # Only grow plants that have been scanned
         for plant_id, _, _ in PLANTS:
             if self.initialised[plant_id]:
-                self.true_ripeness[plant_id] = min(
-                    1.0,
-                    self.true_ripeness[plant_id] +
-                    self.true_growth_rate[plant_id]
-                )
+                self.true_ripeness[plant_id] += self.true_growth_rate[plant_id]
 
     def on_crop_arrival(self, msg: String):
         try:
@@ -115,16 +113,13 @@ class PlantSimulatorNode(Node):
         except ValueError:
             return
 
-        # Guard — do not reset if already initialised
         if self.initialised[plant_id]:
             return
 
-        # Generate initial ripeness from scan
         initial_ripeness = random.uniform(0.0, 0.1)
         self.true_ripeness[plant_id] = initial_ripeness
         self.initialised[plant_id] = True
 
-        # Publish scan result to DT
         scan_msg = String()
         scan_msg.data = f'{plant_id}:{initial_ripeness:.3f}'
         self.scan_pub.publish(scan_msg)
@@ -135,7 +130,6 @@ class PlantSimulatorNode(Node):
         )
 
     def on_harvest_command(self, msg: String):
-        # Second scan — publish true ripeness
         parts = msg.data.split(':')
         if len(parts) != 2:
             return
@@ -160,13 +154,20 @@ class PlantSimulatorNode(Node):
         except ValueError:
             return
 
-        # Reset plant — starts growing again from 0.0
         self.true_ripeness[plant_id] = 0.0
-        # Keep initialised=True so it grows again
-        # DT will also reset its simulated value on harvest_complete
-
         self.get_logger().info(
             f'Plant {plant_id} harvested — reset to 0.0'
+        )
+
+    def on_plant_spoiled(self, msg: String):
+        try:
+            plant_id = int(msg.data)
+        except ValueError:
+            return
+
+        self.true_ripeness[plant_id] = 0.0
+        self.get_logger().info(
+            f'Plant {plant_id} spoiled (DT >1.1) — true ripeness reset to 0.0'
         )
 
     def publish_true_map(self):

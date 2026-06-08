@@ -6,7 +6,7 @@ from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription, AppendEnvironmentVariable, GroupAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import PushRosNamespace
+from launch_ros.actions import PushRosNamespace, Node
 
 
 def generate_launch_description():
@@ -47,7 +47,16 @@ def generate_launch_description():
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(os.path.join(launch_file_dir, 'spawn_turtlebot3.launch.py')),
             launch_arguments={'x_pose': x_pose, 'y_pose': y_pose}.items()
-        )
+        ),
+        Node(
+            package='ros_gz_bridge',
+            executable='parameter_bridge',
+            name='set_pose_bridge',
+            arguments=[
+                '/world/default/set_pose@ros_gz_interfaces/srv/SetEntityPose'
+            ],
+            output='screen',
+        ),
     ])
 
     ld = LaunchDescription()

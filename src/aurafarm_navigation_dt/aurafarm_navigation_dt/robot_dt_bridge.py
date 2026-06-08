@@ -20,7 +20,7 @@ class RobotDTBridgeNode(Node):
         # /world/default/set_pose@ros_gz_interfaces/srv/SetEntityPose
         self.set_pose_client = self.create_client(
             SetEntityPose,
-            '/sim/world/default/set_pose'
+            '/world/default/set_pose'
         )
 
         # Subscribe to real robot odometry
@@ -57,7 +57,7 @@ class RobotDTBridgeNode(Node):
         # Broadcast TF for RViz visualisation
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
-        t.header.frame_id = 'map'
+        t.header.frame_id = 'odom'
         t.child_frame_id = 'base_footprint_real'
         t.transform.translation.x = msg.pose.pose.position.x
         t.transform.translation.y = msg.pose.pose.position.y
@@ -70,12 +70,16 @@ class RobotDTBridgeNode(Node):
             return
 
         if not self.set_pose_client.service_is_ready():
+            self.get_logger().warn(
+                'SetEntityPose service not ready — mirroring paused',
+                throttle_duration_sec=5.0
+            )
             return
 
         # Call SetEntityPose service to move the Gazebo model
         request = SetEntityPose.Request()
         request.entity = Entity()
-        request.entity.name = 'turtlebot3_burger'
+        request.entity.name = 'burger'
         request.entity.type = Entity.MODEL
 
         request.pose.position.x = self.latest_odom.pose.pose.position.x
