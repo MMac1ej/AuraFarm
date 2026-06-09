@@ -66,43 +66,61 @@ colcon build --packages-select <package_name>
 
 ## Option A — Simulation Demo (Gazebo)
 
-Open 7 terminals all attached to the container. **Run in this exact order:**
+Open 8 terminals all attached to the container. **Run in this exact order.**
+
+Sourcing (run in **every** terminal):
+```bash
+cd /ws && source /opt/ros/jazzy/setup.bash && source /opt/turtlebot3_ws/install/setup.bash && source install/setup.bash && export TURTLEBOT3_MODEL=burger
+```
 
 ### Terminal 1 — Launch simulation world
+Also starts the `set_pose_bridge` and publishes the Gazebo scan on `/sim/scan` automatically.
 ```bash
-cd /ws && source /opt/ros/jazzy/setup.bash && source /opt/turtlebot3_ws/install/setup.bash && source install/setup.bash && export TURTLEBOT3_MODEL=burger && ros2 launch my_tb3_world new_world.launch.py
+ros2 launch my_tb3_world new_world.launch.py
 ```
 
 ### Terminal 2 — Launch navigation + RViz
 ```bash
-cd /ws && source /opt/ros/jazzy/setup.bash && source /opt/turtlebot3_ws/install/setup.bash && source install/setup.bash && export TURTLEBOT3_MODEL=burger && ros2 launch turtlebot3_navigation2 navigation2.launch.py use_sim_time:=True map:=/ws/maps/CleanSimMap.yaml
+ros2 launch turtlebot3_navigation2 navigation2.launch.py use_sim_time:=True map:=/ws/maps/CleanSimMap.yaml params_file:=/ws/params/burger.yaml
 ```
 ⚠️ Wait for RViz to open. Set **2D Pose Estimate** before continuing.
 
-### Terminal 3 — Plant simulator (true ripeness)
+### Terminal 3 — Sim topic relay
+Relays `/sim/tf`→`/tf`, `/sim/odom`→`/odom`, `/cmd_vel`→`/sim/cmd_vel` so Nav2 can talk to the simulated robot.
 ```bash
-cd /ws && source install/setup.bash && ros2 run aurafarm_field_dt plant_simulator
+ros2 run aurafarm_navigation_dt sim_topic_relay
 ```
 
-### Terminal 4 — Dynamic crop map (DT core)
+### Terminal 4 — LiDAR merger
+In sim-only mode passes `/sim/scan` straight through to `/aurafarm/merged_scan` (used by Nav2).
 ```bash
-cd /ws && source install/setup.bash && ros2 run aurafarm_field_dt dynamic_crop_map
+ros2 run aurafarm_navigation_dt lidar_merger
 ```
 
-### Terminal 5 — Battery monitor
+### Terminal 5 — Plant simulator (true ripeness)
 ```bash
-cd /ws && source install/setup.bash && ros2 run aurafarm_ripeness_dt twin_state_monitor
+ros2 run aurafarm_field_dt plant_simulator
 ```
 
-### Terminal 6 — Farmer input (run this before Terminal 7)
+### Terminal 6 — Dynamic crop map (DT core)
 ```bash
-cd /ws && source install/setup.bash && ros2 run aurafarm_ripeness_dt farmer_input
+ros2 run aurafarm_field_dt dynamic_crop_map
 ```
-You will be prompted to enter ripeness thresholds for each plant type:
 
-### Terminal 7 — Navigation node (run after farmer input confirms)
+### Terminal 7 — Battery monitor
 ```bash
-cd /ws && source install/setup.bash && export TURTLEBOT3_MODEL=burger && ros2 run aurafarm_navigation_dt nav_to_crop
+ros2 run aurafarm_ripeness_dt twin_state_monitor
+```
+
+### Terminal 8 — Farmer input (run before Terminal 9)
+```bash
+ros2 run aurafarm_ripeness_dt farmer_input
+```
+You will be prompted to enter ripeness thresholds for each plant type. Press Enter to use defaults (A: 0.8, B: 0.9).
+
+### Terminal 9 — Navigation node (run after farmer input confirms)
+```bash
+ros2 run aurafarm_navigation_dt nav_to_crop
 ```
 
 ## Running the Full System — Physical Robot
@@ -306,13 +324,12 @@ This setup runs the real TurtleBot in the lab while mirroring its position in Ga
 and merging the real LiDAR with the virtual LiDAR so the robot can "see" both the
 physical obstacles and the virtual plants.
 
-### Architecture
-
 ### Prerequisites
 - TurtleBot powered on and connected to the lab network
 - Know the robot IP address (ask lab TA)
 - Real lab map files at `~/turtlebot3_ws/maps/map.pgm` and `~/turtlebot3_ws/maps/map.yaml`
 - Code cloned and built at `~/turtlebot3_ws`
+- `PLANTS` coordinates in `DynamicCropMapNode.py` and `PlantSimulatorNode.py` updated to match real lab floor marker positions
 
 ### Sourcing (run in every new terminal)
 ```bash
@@ -322,86 +339,36 @@ source ~/turtlebot3_ws/install/setup.bash
 export TURTLEBOT3_MODEL=burger
 ```
 
-### Step 1 — SSH into robot and launch bringup
-Open a terminal on the lab laptop:
+### Terminal 1 — SSH into robot and launch bringup
+Leave this terminal open for the whole session.
 ```bash
 ssh ubuntu@<ROBOT_IP>
 export TURTLEBOT3_MODEL=burger
 ros2 launch turtlebot3_bringup robot.launch.py
 ```
-Leave this terminal open for the whole session.
 
-### Step 2 — Launch Gazebo world
-Open a new terminal:
+### Terminal 2 — Launch Gazebo world
+Also starts the `set_pose_bridge` and publishes the Gazebo scan on `/sim/scan` automatically.
 ```bash
-source /opt/ros/jazzy/setup.bash
-source /opt/turtlebot3_ws/install/setup.bash
-source ~/turtlebot3_ws/install/setup.bash
-export TURTLEBOT3_MODEL=burger
 ros2 launch my_tb3_world new_world.launch.py
 ```
 
-### Step 3 — Launch navigation with real lab map
-Open a new terminal:
+### Terminal 3 — Launch navigation + RViz
 ```bash
-source /opt/ros/jazzy/setup.bash
-source /opt/turtlebot3_ws/install/setup.bash
-source ~/turtlebot3_ws/install/setup.bash
-export TURTLEBOT3_MODEL=burger
 ros2 launch turtlebot3_navigation2 navigation2.launch.py map:=~/turtlebot3_ws/maps/map.yaml params_file:=~/turtlebot3_ws/params/burger.yaml
 ```
 ⚠️ No `use_sim_time:=True` for the real robot.
 ⚠️ Set **2D Pose Estimate** in RViz where the robot physically is before continuing.
 
-### Step 4 — Check the set_pose service name
-Open a new terminal:
+### Terminal 4 — Real LiDAR republisher
+Republishes the real robot's `/scan` to `/real/scan` to avoid topic conflict with Gazebo.
 ```bash
-source /opt/ros/jazzy/setup.bash
-ros2 service list | grep set_pose
-```
-Expected: `/world/default/set_pose`
-If different, update `robot_dt_bridge.py` and rebuild:
-```bash
-cd ~/turtlebot3_ws
-source /opt/ros/jazzy/setup.bash
-source /opt/turtlebot3_ws/install/setup.bash
-colcon build --packages-select aurafarm_navigation_dt
-source install/setup.bash
-```
-
-### Step 5 — Bridge the set_pose service
-```bash
-source /opt/ros/jazzy/setup.bash
-source /opt/turtlebot3_ws/install/setup.bash
-ros2 run ros_gz_bridge parameter_bridge /world/default/set_pose@ros_gz_interfaces/srv/SetEntityPose
-```
-⚠️ Replace `default` with your world name if different.
-
-### Step 6 — Remap Gazebo scan to /sim/scan
-```bash
-source /opt/ros/jazzy/setup.bash
-source /opt/turtlebot3_ws/install/setup.bash
-ros2 run ros_gz_bridge parameter_bridge /scan@sensor_msgs/msg/LaserScan --ros-args -r /scan:=/sim/scan
-```
-
-### Step 7 — Real LiDAR republisher
-```bash
-source /opt/ros/jazzy/setup.bash
-source ~/turtlebot3_ws/install/setup.bash
 ros2 run aurafarm_navigation_dt lidar_real
 ```
 
-### Step 8 — Sim LiDAR republisher
+### Terminal 5 — LiDAR merger
+Merges `/real/scan` (real robot) + `/sim/scan` (Gazebo) → `/aurafarm/merged_scan` used by Nav2.
 ```bash
-source /opt/ros/jazzy/setup.bash
-source ~/turtlebot3_ws/install/setup.bash
-ros2 run aurafarm_navigation_dt lidar_sim
-```
-
-### Step 9 — LiDAR merger
-```bash
-source /opt/ros/jazzy/setup.bash
-source ~/turtlebot3_ws/install/setup.bash
 ros2 run aurafarm_navigation_dt lidar_merger
 ```
 Verify it is working:
@@ -409,10 +376,9 @@ Verify it is working:
 ros2 topic echo /aurafarm/merged_scan
 ```
 
-### Step 10 — Robot DT bridge
+### Terminal 6 — Robot DT bridge
+Mirrors real robot position to Gazebo in real time (10 Hz).
 ```bash
-source /opt/ros/jazzy/setup.bash
-source ~/turtlebot3_ws/install/setup.bash
 ros2 run aurafarm_navigation_dt robot_dt_bridge
 ```
 Verify mirroring is working:
@@ -420,28 +386,31 @@ Verify mirroring is working:
 ros2 topic echo /aurafarm/dt_odom
 ```
 
-### Step 11 — Run the crop tour nodes
-Each in a new terminal, run in this order:
-
+### Terminal 7 — Plant simulator (true ripeness)
 ```bash
-# Plant simulator
-source /opt/ros/jazzy/setup.bash && source ~/turtlebot3_ws/install/setup.bash && ros2 run aurafarm_field_dt plant_simulator
-
-# Dynamic crop map (DT core)
-source /opt/ros/jazzy/setup.bash && source ~/turtlebot3_ws/install/setup.bash && ros2 run aurafarm_field_dt dynamic_crop_map
-
-# Battery monitor
-source /opt/ros/jazzy/setup.bash && source ~/turtlebot3_ws/install/setup.bash && ros2 run aurafarm_ripeness_dt twin_state_monitor
-
-# Farmer input — enter thresholds when prompted
-source /opt/ros/jazzy/setup.bash && source ~/turtlebot3_ws/install/setup.bash && ros2 run aurafarm_ripeness_dt farmer_input
-
-# Navigation node — run after farmer input confirms
-source /opt/ros/jazzy/setup.bash && source ~/turtlebot3_ws/install/setup.bash && export TURTLEBOT3_MODEL=burger && ros2 run aurafarm_navigation_dt nav_to_crop
+ros2 run aurafarm_field_dt plant_simulator
 ```
 
-⚠️ Update `PLANTS` coordinates in both `DynamicCropMapNode.py` and
-`PlantSimulatorNode.py` to match the real lab floor marker positions before running.
+### Terminal 8 — Dynamic crop map (DT core)
+```bash
+ros2 run aurafarm_field_dt dynamic_crop_map
+```
+
+### Terminal 9 — Battery monitor
+```bash
+ros2 run aurafarm_ripeness_dt twin_state_monitor
+```
+
+### Terminal 10 — Farmer input (run before Terminal 11)
+```bash
+ros2 run aurafarm_ripeness_dt farmer_input
+```
+You will be prompted to enter ripeness thresholds for each plant type. Press Enter to use defaults (A: 0.8, B: 0.9).
+
+### Terminal 11 — Navigation node (run after farmer input confirms)
+```bash
+ros2 run aurafarm_navigation_dt nav_to_crop
+```
 
 ### Terminal summary
 | Terminal | Command |
@@ -449,17 +418,14 @@ source /opt/ros/jazzy/setup.bash && source ~/turtlebot3_ws/install/setup.bash &&
 | T1 | SSH into robot + bringup |
 | T2 | Gazebo world |
 | T3 | Navigation + RViz |
-| T4 | set_pose bridge |
-| T5 | Gazebo scan remap to /sim/scan |
-| T6 | lidar_real |
-| T7 | lidar_sim |
-| T8 | lidar_merger |
-| T9 | robot_dt_bridge |
-| T10 | plant_simulator |
-| T11 | dynamic_crop_map |
-| T12 | twin_state_monitor |
-| T13 | farmer_input |
-| T14 | nav_to_crop |
+| T4 | lidar_real |
+| T5 | lidar_merger |
+| T6 | robot_dt_bridge |
+| T7 | plant_simulator |
+| T8 | dynamic_crop_map |
+| T9 | twin_state_monitor |
+| T10 | farmer_input |
+| T11 | nav_to_crop |
 
 ### Monitoring
 ```bash
