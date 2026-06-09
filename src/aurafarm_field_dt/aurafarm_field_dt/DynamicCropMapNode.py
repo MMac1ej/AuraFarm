@@ -41,7 +41,6 @@ PLANTS = [
 BASE_POSITION = (0.0, 0.0)
 ROBOT_SPEED = 0.22
 ROBOT_CAPACITY = 5
-SPOIL_THRESHOLD = 1.1
 EARLY_DEPARTURE_OFFSET = 0.1
 GOOD_HARVEST_TOLERANCE = 0.05
 
@@ -79,7 +78,6 @@ class DynamicCropMapNode(Node):
         # --- Statistics ---
         self.harvested_total = 0
         self.harvested_good = 0
-        self.spoiled_total = 0
 
         # --- Watchdog ---
         self.last_target_time = self.get_clock().now()
@@ -97,10 +95,6 @@ class DynamicCropMapNode(Node):
         self.phase_pub = self.create_publisher(
             String, '/aurafarm/phase', 10
         )
-        self.spoiled_pub = self.create_publisher(
-            String, '/aurafarm/plant_spoiled', 10
-        )
-
         # --- Subscribers ---
         self.create_subscription(
             String, '/aurafarm/farmer_thresholds',
@@ -238,7 +232,7 @@ class DynamicCropMapNode(Node):
         self.harvest_cmd_pub.publish(harvest_msg)
 
     # ================================================================
-    # SIMULATED RIPENESS GROWTH + SPOILAGE DETECTION
+    # SIMULATED RIPENESS GROWTH
     # ================================================================
     def update_simulated_ripeness(self):
         for plant_id, plant_type, _ in PLANTS:
@@ -247,27 +241,6 @@ class DynamicCropMapNode(Node):
 
             rate = PLANT_TYPES[plant_type]['simulated_growth_rate']
             self.simulated_ripeness[plant_id] += rate
-
-            if self.simulated_ripeness[plant_id] > SPOIL_THRESHOLD:
-                self.simulated_ripeness[plant_id] = 0.0
-                self.spoiled_total += 1
-
-                spoil_msg = String()
-                spoil_msg.data = str(plant_id)
-                self.spoiled_pub.publish(spoil_msg)
-
-                self.get_logger().warn(
-                    f'Plant {plant_id} SPOILED (simulated >1.1) — '
-                    f'reset to 0.0'
-                )
-                self._log_stats()
-
-                if self.current_harvest_target == plant_id:
-                    self.current_harvest_target = None
-                    self.awaiting_second_scan = None
-                    self.waiting_for_harvest_complete = False
-                    if self.phase == 'harvesting':
-                        self.send_next_harvest_target()
 
     # ================================================================
     # OPTIMAL PATH CALCULATION
@@ -479,16 +452,14 @@ class DynamicCropMapNode(Node):
     # STATISTICS
     # ================================================================
     def _log_stats(self):
-        total_outcomes = self.harvested_total + self.spoiled_total
-        if total_outcomes == 0:
+        if self.harvested_total == 0:
             rate = 0.0
         else:
-            rate = self.harvested_good / total_outcomes * 100.0
+            rate = self.harvested_good / self.harvested_total * 100.0
 
         self.get_logger().info(
             f'[STATS] harvested={self.harvested_total}, '
             f'good={self.harvested_good}, '
-            f'spoiled={self.spoiled_total}, '
             f'success_rate={rate:.1f}%'
         )
 

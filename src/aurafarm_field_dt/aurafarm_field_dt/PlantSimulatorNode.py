@@ -78,11 +78,6 @@ class PlantSimulatorNode(Node):
             String, '/aurafarm/harvest_command',
             self.on_harvest_command, 10
         )
-        # Reset true ripeness when DT detects spoilage
-        self.create_subscription(
-            String, '/aurafarm/plant_spoiled',
-            self.on_plant_spoiled, 10
-        )
 
         self.true_map_pub = self.create_publisher(
             String, '/aurafarm/true_ripeness_map', 10
@@ -157,17 +152,6 @@ class PlantSimulatorNode(Node):
         self.true_ripeness[plant_id] = 0.0
         self.get_logger().info(
             f'Plant {plant_id} harvested — reset to 0.0'
-        )
-
-    def on_plant_spoiled(self, msg: String):
-        try:
-            plant_id = int(msg.data)
-        except ValueError:
-            return
-
-        self.true_ripeness[plant_id] = 0.0
-        self.get_logger().info(
-            f'Plant {plant_id} spoiled (DT >1.1) — true ripeness reset to 0.0'
         )
 
     def publish_true_map(self):
