@@ -6,11 +6,11 @@ import random
 # Plant configuration
 PLANT_TYPES = {
     'A': {
-        'simulated_growth_rate': 0.002,
+        'simulated_growth_rate': 0.0015,
         'true_growth_offset': 0.2,
     },
     'B': {
-        'simulated_growth_rate': 0.0015,
+        'simulated_growth_rate': 0.001125,
         'true_growth_offset': 0.2,
     }
 }
@@ -60,8 +60,8 @@ class PlantSimulatorNode(Node):
                 1.0 + random.uniform(-offset, offset)
             )
             self.true_growth_rate[plant_id] = true_rate
-            self.true_ripeness[plant_id] = 0.0
-            self.initialised[plant_id] = False
+            self.true_ripeness[plant_id] = random.uniform(0.1, 0.5)
+            self.initialised[plant_id] = True
 
         self.scan_pub = self.create_publisher(
             String, '/aurafarm/plant_scan', 10
@@ -108,20 +108,15 @@ class PlantSimulatorNode(Node):
         except ValueError:
             return
 
-        if self.initialised[plant_id]:
-            return
-
-        initial_ripeness = random.uniform(0.0, 0.1)
-        self.true_ripeness[plant_id] = initial_ripeness
-        self.initialised[plant_id] = True
+        current_ripeness = self.true_ripeness[plant_id]
 
         scan_msg = String()
-        scan_msg.data = f'{plant_id}:{initial_ripeness:.3f}'
+        scan_msg.data = f'{plant_id}:{current_ripeness:.3f}'
         self.scan_pub.publish(scan_msg)
 
         self.get_logger().info(
             f'Initial scan plant {plant_id}: '
-            f'ripeness={initial_ripeness:.3f}'
+            f'ripeness={current_ripeness:.3f}'
         )
 
     def on_harvest_command(self, msg: String):

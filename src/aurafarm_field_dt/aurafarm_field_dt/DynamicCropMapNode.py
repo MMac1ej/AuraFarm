@@ -5,8 +5,8 @@ import math
 
 # Plant configuration — DT knows these rates
 PLANT_TYPES = {
-    'A': {'simulated_growth_rate': 0.002},
-    'B': {'simulated_growth_rate': 0.0015},
+    'A': {'simulated_growth_rate': 0.0015},
+    'B': {'simulated_growth_rate': 0.001125},
 }
 
 PLANTS = [
@@ -42,7 +42,7 @@ BASE_POSITION = (0.0, 0.0)
 ROBOT_SPEED = 0.22
 ROBOT_CAPACITY = 5
 EARLY_DEPARTURE_OFFSET = 0.1
-GOOD_HARVEST_TOLERANCE = 0.05
+GOOD_HARVEST_TOLERANCE = 0.15
 
 
 class DynamicCropMapNode(Node):
