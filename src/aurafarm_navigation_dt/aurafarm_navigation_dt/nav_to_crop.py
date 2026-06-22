@@ -1,3 +1,7 @@
+# Navigation executor: drives the robot to scan and harvest targets issued by
+# DynamicCropMapNode via Nav2. Publishes crop_arrival on reach, harvest_complete
+# on confirmed harvest, and robot_status (position/capacity/battery) after each move.
+
 import rclpy
 from rclpy.node import Node
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult

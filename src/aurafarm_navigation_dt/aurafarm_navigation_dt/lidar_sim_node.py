@@ -1,3 +1,6 @@
+# Republishes the Gazebo simulation scan from /sim/scan to /aurafarm/sim_scan
+# for separate monitoring/visualization of the virtual robot's LiDAR data.
+
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan

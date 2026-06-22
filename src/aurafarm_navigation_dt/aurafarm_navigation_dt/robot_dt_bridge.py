@@ -1,3 +1,7 @@
+# Physical robot → Gazebo mirror: subscribes to /odom and /scan from the real robot,
+# moves the Gazebo model to match via SetEntityPose at 10 Hz, and republishes the
+# real scan as /aurafarm/dt_scan for DT visualization.
+
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import Odometry

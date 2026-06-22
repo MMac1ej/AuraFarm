@@ -1,3 +1,7 @@
+# DT core: tracks simulated ripeness for all 16 plants, calculates optimal harvest
+# order based on predicted ripeness at arrival time, and dispatches navigation targets
+# to the robot. Confirms or skips harvest based on second real scan at each plant.
+
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -43,6 +47,7 @@ ROBOT_SPEED = 0.22
 ROBOT_CAPACITY = 5
 EARLY_DEPARTURE_OFFSET = 0.1
 GOOD_HARVEST_TOLERANCE = 0.15
+EWMA_ALPHA = 0.2  # weight of each new rate observation vs. accumulated estimate
 
 
 class DynamicCropMapNode(Node):
@@ -54,6 +59,13 @@ class DynamicCropMapNode(Node):
         self.initialised = {p[0]: False for p in PLANTS}
         self.plant_type = {p[0]: p[1] for p in PLANTS}
         self.plant_pos = {p[0]: p[2] for p in PLANTS}
+
+        # --- Per-plant growth rate (EWMA-updated from real scans) ---
+        self.growth_rate = {
+            p[0]: PLANT_TYPES[p[1]]['simulated_growth_rate'] for p in PLANTS
+        }
+        self.first_scan_ripeness = {}
+        self.first_scan_time = {}
 
         # --- Farmer thresholds ---
         self.thresholds = {'A': 0.8, 'B': 0.9}
@@ -195,6 +207,8 @@ class DynamicCropMapNode(Node):
             self.simulated_ripeness[plant_id] = ripeness
             self.initialised[plant_id] = True
             self.plants_scanned.add(plant_id)
+            self.first_scan_ripeness[plant_id] = ripeness
+            self.first_scan_time[plant_id] = self.get_clock().now()
 
             self.get_logger().info(
                 f'Plant {plant_id} initialised: '
@@ -235,12 +249,10 @@ class DynamicCropMapNode(Node):
     # SIMULATED RIPENESS GROWTH
     # ================================================================
     def update_simulated_ripeness(self):
-        for plant_id, plant_type, _ in PLANTS:
+        for plant_id, _, _ in PLANTS:
             if not self.initialised[plant_id]:
                 continue
-
-            rate = PLANT_TYPES[plant_type]['simulated_growth_rate']
-            self.simulated_ripeness[plant_id] += rate
+            self.simulated_ripeness[plant_id] += self.growth_rate[plant_id]
 
     # ================================================================
     # OPTIMAL PATH CALCULATION
@@ -269,7 +281,7 @@ class DynamicCropMapNode(Node):
 
             threshold = self.thresholds.get(plant_type, 0.8)
             sim_ripe = self.simulated_ripeness[plant_id]
-            rate = PLANT_TYPES[plant_type]['simulated_growth_rate']
+            rate = self.growth_rate[plant_id]
 
             distance = math.sqrt((px - rx)**2 + (py - ry)**2)
             travel_time = distance / ROBOT_SPEED
@@ -334,6 +346,30 @@ class DynamicCropMapNode(Node):
     # ================================================================
     # SECOND SCAN
     # ================================================================
+    def _update_growth_rate(self, plant_id: int, true_ripeness: float):
+        if plant_id not in self.first_scan_time:
+            return
+        elapsed = (
+            self.get_clock().now() - self.first_scan_time[plant_id]
+        ).nanoseconds / 1e9
+        if elapsed < 5.0:
+            return
+        first_ripe = self.first_scan_ripeness[plant_id]
+        observed_rate = (true_ripeness - first_ripe) / elapsed
+        if observed_rate <= 0:
+            return
+        old_rate = self.growth_rate[plant_id]
+        self.growth_rate[plant_id] = (
+            EWMA_ALPHA * observed_rate + (1.0 - EWMA_ALPHA) * old_rate
+        )
+        self.first_scan_ripeness[plant_id] = true_ripeness
+        self.first_scan_time[plant_id] = self.get_clock().now()
+        self.get_logger().info(
+            f'Plant {plant_id} rate EWMA update: '
+            f'{old_rate:.6f} → {self.growth_rate[plant_id]:.6f} '
+            f'(observed={observed_rate:.6f} over {elapsed:.1f}s)'
+        )
+
     def process_second_scan(self, plant_id: int, true_ripeness: float):
         plant_type = self.plant_type[plant_id]
         threshold = self.thresholds[plant_type]
@@ -346,6 +382,7 @@ class DynamicCropMapNode(Node):
             f'threshold={threshold}'
         )
 
+        self._update_growth_rate(plant_id, true_ripeness)
         self.awaiting_second_scan = None
         self.last_true_ripeness[plant_id] = true_ripeness
 

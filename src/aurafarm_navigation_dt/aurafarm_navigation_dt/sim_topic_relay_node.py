@@ -1,3 +1,7 @@
+# Sim-only relay: bridges Gazebo namespaced topics (/sim/tf, /sim/odom, /sim/scan)
+# to the standard Nav2 topics (/tf, /odom, /scan), and forwards Nav2 velocity
+# commands (/cmd_vel) back to the Gazebo robot (/sim/cmd_vel).
+
 import rclpy
 from rclpy.node import Node
 from tf2_msgs.msg import TFMessage

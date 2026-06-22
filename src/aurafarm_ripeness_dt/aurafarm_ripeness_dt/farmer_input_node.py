@@ -1,3 +1,7 @@
+# Mission start: prompts the farmer to enter ripeness thresholds for each plant
+# type (A/B), then publishes them to /aurafarm/farmer_thresholds to kick off
+# the scanning and harvesting tour.
+
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String

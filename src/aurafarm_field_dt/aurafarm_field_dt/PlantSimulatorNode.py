@@ -1,3 +1,7 @@
+# Ground-truth plant simulator: maintains true ripeness for each plant with a random
+# per-plant growth rate offset from the DT's simulated rate (±20%). Publishes the
+# real ripeness on crop_arrival (initial scan) and on harvest_command (second scan).
+
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
