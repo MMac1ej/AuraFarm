@@ -81,20 +81,88 @@ ros2 launch my_tb3_world new_world.launch.py
 
 ### Terminal 2 — Launch navigation + RViz
 ```bash
-ros2 launch turtlebot3_navigation2 navigation2.launch.py use_sim_time:=True map:=/ws/maps/CleanSimMap.yaml params_file:=/ws/params/burger.yaml
+ros2 launch turtlebot3_navigation2 navigation2.launch.py use_sim_time:=True map:=/ws/maps/areaMap.yaml params_file:=/ws/params/burger.yaml
 ```
 ⚠️ Wait for RViz to open. Set **2D Pose Estimate** before continuing.
 
 ### Terminal 3 — Sim topic relay
-Relays `/sim/tf`→`/tf`, `/sim/odom`→`/odom`, `/cmd_vel`→`/sim/cmd_vel` so Nav2 can talk to the simulated robot.
+Relays `/sim/tf`→`/tf`, `/sim/odom`→`/odom`, `/sim/scan`→`/scan`, `/cmd_vel`→`/sim/cmd_vel` so Nav2 can talk to the simulated robot.
 ```bash
 ros2 run aurafarm_navigation_dt sim_topic_relay
 ```
 
-### Terminal 4 — LiDAR merger
-In sim-only mode passes `/sim/scan` straight through to `/aurafarm/merged_scan` (used by Nav2).
+### Terminal 4 — Plant simulator (true ripeness)
 ```bash
-ros2 run aurafarm_navigation_dt lidar_merger
+ros2 run aurafarm_field_dt plant_simulator
+```
+
+### Terminal 5 — Dynamic crop map (DT core)
+```bash
+ros2 run aurafarm_field_dt dynamic_crop_map
+```
+
+### Terminal 6 — Battery monitor
+```bash
+ros2 run aurafarm_ripeness_dt twin_state_monitor
+```
+
+### Terminal 7 — Farmer input (run before Terminal 8)
+```bash
+ros2 run aurafarm_ripeness_dt farmer_input
+```
+You will be prompted to enter ripeness thresholds for each plant type. Press Enter to use defaults (A: 0.8, B: 0.9).
+
+### Terminal 8 — Navigation node (run after farmer input confirms)
+```bash
+ros2 run aurafarm_navigation_dt nav_to_crop
+```
+
+---
+
+## Option B — Physical Robot + Gazebo Mirroring
+
+The real robot navigates using its own `/scan` directly. The `robot_dt_bridge` mirrors
+its position into Gazebo in real time so the DT reflects the physical robot's location.
+
+Open 9 terminals. **Run in this exact order.**
+
+Sourcing (run in **every** terminal):
+```bash
+cd /ws && source /opt/ros/jazzy/setup.bash && source /opt/turtlebot3_ws/install/setup.bash && source install/setup.bash && export TURTLEBOT3_MODEL=burger
+```
+
+### Terminal 1 — SSH into robot and launch bringup
+Leave this terminal open for the whole session.
+```bash
+ssh ubuntu@<ROBOT_IP>
+export TURTLEBOT3_MODEL=burger
+ros2 launch turtlebot3_bringup robot.launch.py
+```
+
+### Terminal 2 — Launch Gazebo world
+Also starts the `set_pose_bridge` used by robot_dt_bridge to move the Gazebo model.
+```bash
+ros2 launch my_tb3_world new_world.launch.py
+```
+
+### Terminal 3 — Launch navigation + RViz
+```bash
+ros2 launch turtlebot3_navigation2 navigation2.launch.py \
+  use_sim_time:=False \
+  map:=/ws/maps/areaMap.yaml \
+  params_file:=/ws/params/burger.yaml
+```
+⚠️ No `use_sim_time:=True` for the real robot.  
+⚠️ Set **2D Pose Estimate** in RViz where the robot physically is before continuing.
+
+### Terminal 4 — Robot DT bridge
+Mirrors real robot position to Gazebo at 10 Hz. Subscribes to `/scan` and `/odom` from the real robot.
+```bash
+ros2 run aurafarm_navigation_dt robot_dt_bridge
+```
+Verify mirroring is working:
+```bash
+ros2 topic echo /aurafarm/dt_odom
 ```
 
 ### Terminal 5 — Plant simulator (true ripeness)
@@ -123,31 +191,27 @@ You will be prompted to enter ripeness thresholds for each plant type. Press Ent
 ros2 run aurafarm_navigation_dt nav_to_crop
 ```
 
-## Running the Full System — Physical Robot
+### Terminal summary
 
-## Step 1 — SSH into robot and launch bringup
-```bash
-ssh ubuntu@<ROBOT_IP>
-export TURTLEBOT3_MODEL=burger
-ros2 launch turtlebot3_bringup robot.launch.py
-```
+| Terminal | Command |
+|----------|---------|
+| T1 | SSH into robot + bringup |
+| T2 | Gazebo world |
+| T3 | Navigation + RViz |
+| T4 | robot_dt_bridge |
+| T5 | plant_simulator |
+| T6 | dynamic_crop_map |
+| T7 | twin_state_monitor |
+| T8 | farmer_input |
+| T9 | nav_to_crop |
 
-### Step 2 — Launch navigation with real lab map
-```bash
-cd /ws && source /opt/ros/jazzy/setup.bash && source /opt/turtlebot3_ws/install/setup.bash && source install/setup.bash && export TURTLEBOT3_MODEL=burger && ros2 launch turtlebot3_navigation2 navigation2.launch.py map:=/ws/maps/map.yaml
-```
-⚠️ No `use_sim_time:=True` for the real robot.
-
-### Step 3 — Set 2D Pose Estimate in RViz
+### Step — Set 2D Pose Estimate in RViz
 1. Click **2D Pose Estimate** in RViz toolbar
 2. Click on the map where the robot physically is
 3. Hold and drag to set orientation
 4. Wait for green particle cloud to appear
 
-### Step 4 — Run all nodes (Terminals 3–7 same as simulation)
-⚠️ Update `PLANTS` coordinates in `DynamicCropMapNode.py` and `PlantSimulatorNode.py` to match real lab plant positions before running.
-
-### Step 5 — Teleop (optional, for manual control)
+### Step — Teleop (optional, for manual control)
 ```bash
 cd /ws && source install/setup.bash && export TURTLEBOT3_MODEL=burger && ros2 run turtlebot3_teleop teleop_keyboard
 ```
@@ -163,35 +227,6 @@ cd /ws && source install/setup.bash && export TURTLEBOT3_MODEL=burger && ros2 ru
 
 ---
 
-## Real Robot → Gazebo Mirroring
-
-As the real robot moves, its position is mirrored in Gazebo in real time.
-
-### Step 1 — Launch Gazebo world
-```bash
-cd /ws && source /opt/ros/jazzy/setup.bash && source /opt/turtlebot3_ws/install/setup.bash && source install/setup.bash && export TURTLEBOT3_MODEL=burger && ros2 launch my_tb3_world new_world.launch.py
-```
-
-### Step 2 — SSH and launch bringup on robot
-```bash
-ssh ubuntu@<ROBOT_IP>
-export TURTLEBOT3_MODEL=burger
-ros2 launch turtlebot3_bringup robot.launch.py
-```
-
-### Step 3 — Start the bridge node
-```bash
-cd /ws && source install/setup.bash && ros2 run aurafarm_navigation_dt robot_dt_bridge
-```
-
-### Step 4 — Verify mirroring
-```bash
-ros2 topic echo /aurafarm/dt_odom
-ros2 topic echo /aurafarm/dt_scan
-```
-
----
-
 ## ROS 2 Topics
 
 | Topic | Direction | Type | Description |
@@ -201,11 +236,11 @@ ros2 topic echo /aurafarm/dt_scan
 | `/aurafarm/plant_scan` | Simulator → DT | `String` | `plant_id:true_ripeness` |
 | `/aurafarm/next_target` | DT → Robot | `String` | `plant_id:x:y` or `BASE:x:y` |
 | `/aurafarm/harvest_command` | DT → Robot/Sim | `String` | `plant_id:HARVEST/CONFIRMED/SKIP` |
-| `/aurafarm/harvest_complete` | Robot → DT | `String` | `plant_id` |
 | `/aurafarm/harvest_complete` | Robot → DT | `String` | Plant ID harvested |
 | `/aurafarm/base_arrived` | Robot → DT | `String` | Robot deposited at base |
 | `/aurafarm/robot_status` | Robot → DT | `String` | `x:y:capacity:battery` |
-| `/aurafarm/crop_map` | DT → All | `String` | Full plant state map |
+| `/aurafarm/crop_map` | DT → All | `String` | Full plant state map (simulated ripeness) |
+| `/aurafarm/true_ripeness_map` | Simulator → All | `String` | Ground-truth ripeness per plant |
 | `/aurafarm/phase` | DT → Robot | `String` | `scanning` or `harvesting` |
 | `/aurafarm/dt_battery_state` | DT mirror | `BatteryState` | Mirrored battery state |
 | `/aurafarm/dt_system_status` | DT → All | `String` | `battery:%:status` |
@@ -223,6 +258,12 @@ ros2 topic list | grep aurafarm
 
 Watch crop map update in real time:
 ```bash
+ros2 topic echo /aurafarm/crop_map | tr '|' '\n'
+```
+
+Watch true vs simulated ripeness side by side:
+```bash
+ros2 topic echo /aurafarm/true_ripeness_map | tr '|' '\n'
 ros2 topic echo /aurafarm/crop_map | tr '|' '\n'
 ```
 
@@ -248,6 +289,11 @@ ros2 topic echo /aurafarm/harvest_command
 Watch battery state:
 ```bash
 ros2 topic echo /aurafarm/dt_system_status
+```
+
+Watch Gazebo mirroring (Option B only):
+```bash
+ros2 topic echo /aurafarm/dt_odom
 ```
 
 ---
@@ -289,7 +335,7 @@ ros2 topic echo /aurafarm/dt_system_status
 → Use the alternative docker run command with `/mnt/wslg/.X11-unix`
 
 **Robot not moving after farmer input**  
-→ Make sure Terminal 7 (nav node) is running and Nav2 is fully active
+→ Make sure the nav node (last terminal) is running and Nav2 is fully active
 
 **`No target found — all plants below threshold`**  
 → Plants not ripe yet — wait for growth. Check crop map with `ros2 topic echo /aurafarm/crop_map | tr '|' '\n'`
@@ -302,147 +348,3 @@ ros2 topic echo /aurafarm/dt_system_status
 
 **Initial pose keeps resetting to (0,0)**  
 → Set 2D Pose Estimate in RViz **before** running the nav node
-
-## Battery State Monitor
-
-The battery monitor mirrors the physical robot's battery state to the digital twin
-and publishes alerts when battery is low or critical.
-
-### Run the battery monitor
-```bash
-cd /ws && source install/setup.bash && ros2 run aurafarm_ripeness_dt twin_state_monitor
-```
-
-### View battery state in real time
-```bash
-ros2 topic echo /aurafarm/dt_system_status
-```
-
-## Running with Physical Robot + Gazebo Mirroring + Merged LiDAR (Lab Laptop)
-
-This setup runs the real TurtleBot in the lab while mirroring its position in Gazebo
-and merging the real LiDAR with the virtual LiDAR so the robot can "see" both the
-physical obstacles and the virtual plants.
-
-### Prerequisites
-- TurtleBot powered on and connected to the lab network
-- Know the robot IP address (ask lab TA)
-- Real lab map files at `~/turtlebot3_ws/maps/map.pgm` and `~/turtlebot3_ws/maps/map.yaml`
-- Code cloned and built at `~/turtlebot3_ws`
-- `PLANTS` coordinates in `DynamicCropMapNode.py` and `PlantSimulatorNode.py` updated to match real lab floor marker positions
-
-### Sourcing (run in every new terminal)
-```bash
-source /opt/ros/jazzy/setup.bash
-source /opt/turtlebot3_ws/install/setup.bash
-source ~/turtlebot3_ws/install/setup.bash
-export TURTLEBOT3_MODEL=burger
-```
-
-### Terminal 1 — SSH into robot and launch bringup
-Leave this terminal open for the whole session.
-```bash
-ssh ubuntu@<ROBOT_IP>
-export TURTLEBOT3_MODEL=burger
-ros2 launch turtlebot3_bringup robot.launch.py
-```
-
-### Terminal 2 — Launch Gazebo world
-Also starts the `set_pose_bridge` and publishes the Gazebo scan on `/sim/scan` automatically.
-```bash
-ros2 launch my_tb3_world new_world.launch.py
-```
-
-### Terminal 3 — Launch navigation + RViz
-```bash
-ros2 launch turtlebot3_navigation2 navigation2.launch.py map:=~/turtlebot3_ws/maps/map.yaml params_file:=~/turtlebot3_ws/params/burger.yaml
-```
-⚠️ No `use_sim_time:=True` for the real robot.
-⚠️ Set **2D Pose Estimate** in RViz where the robot physically is before continuing.
-
-### Terminal 4 — Real LiDAR republisher
-Republishes the real robot's `/scan` to `/real/scan` to avoid topic conflict with Gazebo.
-```bash
-ros2 run aurafarm_navigation_dt lidar_real
-```
-
-### Terminal 5 — LiDAR merger
-Merges `/real/scan` (real robot) + `/sim/scan` (Gazebo) → `/aurafarm/merged_scan` used by Nav2.
-```bash
-ros2 run aurafarm_navigation_dt lidar_merger
-```
-Verify it is working:
-```bash
-ros2 topic echo /aurafarm/merged_scan
-```
-
-### Terminal 6 — Robot DT bridge
-Mirrors real robot position to Gazebo in real time (10 Hz).
-```bash
-ros2 run aurafarm_navigation_dt robot_dt_bridge
-```
-Verify mirroring is working:
-```bash
-ros2 topic echo /aurafarm/dt_odom
-```
-
-### Terminal 7 — Plant simulator (true ripeness)
-```bash
-ros2 run aurafarm_field_dt plant_simulator
-```
-
-### Terminal 8 — Dynamic crop map (DT core)
-```bash
-ros2 run aurafarm_field_dt dynamic_crop_map
-```
-
-### Terminal 9 — Battery monitor
-```bash
-ros2 run aurafarm_ripeness_dt twin_state_monitor
-```
-
-### Terminal 10 — Farmer input (run before Terminal 11)
-```bash
-ros2 run aurafarm_ripeness_dt farmer_input
-```
-You will be prompted to enter ripeness thresholds for each plant type. Press Enter to use defaults (A: 0.8, B: 0.9).
-
-### Terminal 11 — Navigation node (run after farmer input confirms)
-```bash
-ros2 run aurafarm_navigation_dt nav_to_crop
-```
-
-### Terminal summary
-| Terminal | Command |
-|----------|---------|
-| T1 | SSH into robot + bringup |
-| T2 | Gazebo world |
-| T3 | Navigation + RViz |
-| T4 | lidar_real |
-| T5 | lidar_merger |
-| T6 | robot_dt_bridge |
-| T7 | plant_simulator |
-| T8 | dynamic_crop_map |
-| T9 | twin_state_monitor |
-| T10 | farmer_input |
-| T11 | nav_to_crop |
-
-### Monitoring
-```bash
-# Watch Gazebo model mirroring real robot
-ros2 topic echo /aurafarm/dt_odom
-
-# Verify merged LiDAR is publishing
-ros2 topic echo /aurafarm/merged_scan
-
-# Watch true vs simulated ripeness side by side
-ros2 topic echo /aurafarm/true_ripeness_map | tr '|' '\n'
-ros2 topic echo /aurafarm/crop_map | tr '|' '\n'
-
-# Watch harvest decisions
-ros2 topic echo /aurafarm/next_target
-ros2 topic echo /aurafarm/harvest_command
-
-# Show all AuraFarm topics
-ros2 topic list | grep aurafarm
-```
