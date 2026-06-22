@@ -1,6 +1,9 @@
 # DT core: tracks simulated ripeness for all 16 plants, calculates optimal harvest
 # order based on predicted ripeness at arrival time, and dispatches navigation targets
 # to the robot. Confirms or skips harvest based on second real scan at each plant.
+# Per-plant growth rates are refined over time via EWMA (see _update_growth_rate):
+# each pair of scans yields an observed rate that is blended into the current estimate
+# with weight EWMA_ALPHA=0.2, so the DT gradually learns each plant's true growth speed.
 
 import rclpy
 from rclpy.node import Node
