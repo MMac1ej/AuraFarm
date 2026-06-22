@@ -1,6 +1,15 @@
 <?xml version="1.0"?>
 <sdf version='1.8'>
   <world name='default'>
+    <!--
+      AuraFarm berry field — contains:
+        - Field fences (box models) enclosing the harvest area
+        - 16 visual plant markers: plant_a1..plant_a8 (Zone A / Strawberry)
+          and plant_b1..plant_b8 (Zone B / Blueberry), positions matching
+          DynamicCropMapNode.py — visual only, no collision
+        - Zone floor markers (zone_a_marker blue, zone_b_marker orange)
+        - TurtleBot3 Burger spawned under 'sim' namespace by new_world.launch.py
+    -->
     <physics type="ode">
       <real_time_update_rate>1000.0</real_time_update_rate>
       <max_step_size>0.001</max_step_size>

@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# Launches the AuraFarm Gazebo world (new_world.world) with the TurtleBot3 Burger
+# spawned under the 'sim' namespace — so its scan and odom appear on /sim/scan and
+# /sim/odom, separate from the real robot's /scan. Also starts the ros_gz_bridge
+# for the SetEntityPose service used by robot_dt_bridge to mirror the real robot's
+# position into Gazebo.
 import os
 
 from ament_index_python.packages import get_package_share_directory

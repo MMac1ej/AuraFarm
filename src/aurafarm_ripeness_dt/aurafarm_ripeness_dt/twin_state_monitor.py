@@ -1,6 +1,6 @@
 # DT health monitor: mirrors the physical robot's battery state to
 # /aurafarm/dt_battery_state and publishes a human-readable system status
-# string to /aurafarm/dt_system_status whenever battery level changes by >1%.
+# string to /aurafarm/dt_system_status whenever battery level changes
 
 import rclpy
 from rclpy.node import Node
