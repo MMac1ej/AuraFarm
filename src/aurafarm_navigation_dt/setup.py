@@ -26,9 +26,7 @@ setup(
         'console_scripts': [
             'nav_to_crop = aurafarm_navigation_dt.nav_to_crop:main',
             'robot_dt_bridge = aurafarm_navigation_dt.robot_dt_bridge:main',
-            'lidar_real = aurafarm_navigation_dt.lidar_real_node:main',
             'lidar_sim = aurafarm_navigation_dt.lidar_sim_node:main',
-            'lidar_merger = aurafarm_navigation_dt.lidar_merger_node:main',
             'sim_topic_relay = aurafarm_navigation_dt.sim_topic_relay_node:main',
         ],
     },

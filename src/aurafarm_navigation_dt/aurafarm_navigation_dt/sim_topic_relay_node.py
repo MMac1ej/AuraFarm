@@ -2,6 +2,7 @@ import rclpy
 from rclpy.node import Node
 from tf2_msgs.msg import TFMessage
 from nav_msgs.msg import Odometry
+from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import TwistStamped
 
 
@@ -12,9 +13,11 @@ class SimTopicRelayNode(Node):
         # Sim-only: relay Gazebo TF and odom to standard names for Nav2
         self.tf_pub = self.create_publisher(TFMessage, '/tf', 100)
         self.odom_pub = self.create_publisher(Odometry, '/odom', 10)
+        self.scan_pub = self.create_publisher(LaserScan, '/scan', 10)
 
         self.create_subscription(TFMessage, '/sim/tf', self.on_tf, 100)
         self.create_subscription(Odometry, '/sim/odom', self.on_odom, 10)
+        self.create_subscription(LaserScan, '/sim/scan', self.on_scan, 10)
 
         # Sim-only: forward Nav2 cmd_vel to the namespaced Gazebo robot
         self.sim_cmd_pub = self.create_publisher(TwistStamped, '/sim/cmd_vel', 10)
@@ -22,7 +25,7 @@ class SimTopicRelayNode(Node):
 
         self.get_logger().info(
             'SimTopicRelay started — '
-            '/sim/tf→/tf, /sim/odom→/odom, /cmd_vel→/sim/cmd_vel'
+            '/sim/tf→/tf, /sim/odom→/odom, /sim/scan→/scan, /cmd_vel→/sim/cmd_vel'
         )
 
     def on_tf(self, msg: TFMessage):
@@ -30,6 +33,9 @@ class SimTopicRelayNode(Node):
 
     def on_odom(self, msg: Odometry):
         self.odom_pub.publish(msg)
+
+    def on_scan(self, msg: LaserScan):
+        self.scan_pub.publish(msg)
 
     def on_cmd_vel(self, msg: TwistStamped):
         self.sim_cmd_pub.publish(msg)

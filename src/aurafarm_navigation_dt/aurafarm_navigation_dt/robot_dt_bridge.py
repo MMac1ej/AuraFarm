@@ -30,7 +30,7 @@ class RobotDTBridgeNode(Node):
 
         # Subscribe to real robot LiDAR
         self.create_subscription(
-            LaserScan, '/real/scan', self.on_scan, 10
+            LaserScan, '/scan', self.on_scan, 10
         )
 
         # Publish mirrored odometry to DT topic

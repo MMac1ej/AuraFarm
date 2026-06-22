@@ -36,7 +36,7 @@ amcl:
     z_max: 0.05
     z_rand: 0.5
     z_short: 0.05
-    scan_topic: /aurafarm/merged_scan
+    scan_topic: /scan
     map_topic: map
     set_initial_pose: false
     always_reset_initial_pose: false
@@ -182,7 +182,7 @@ local_costmap:
         enabled: true
         observation_sources: scan
         scan:
-          topic: /aurafarm/merged_scan
+          topic: /scan
           max_obstacle_height: 2.0
           clearing: true
           marking: true
@@ -198,7 +198,7 @@ local_costmap:
         mark_threshold: 0
         observation_sources: scan
         scan:
-          topic: /aurafarm/merged_scan
+          topic: /scan
           max_obstacle_height: 2.0
           clearing: true
           marking: true
@@ -228,7 +228,7 @@ global_costmap:
         enabled: true
         observation_sources: scan
         scan:
-          topic: /aurafarm/merged_scan
+          topic: /scan
           max_obstacle_height: 2.0
           clearing: true
           marking: true
@@ -248,7 +248,7 @@ global_costmap:
         mark_threshold: 0
         observation_sources: scan
         scan:
-          topic: /aurafarm/merged_scan
+          topic: /scan
           max_obstacle_height: 2.0
           clearing: true
           marking: true
@@ -413,7 +413,7 @@ collision_monitor:
     scan:
       source_timeout: 0.2
       type: "scan"
-      topic: "/aurafarm/merged_scan"
+      topic: "/scan"
       enabled: true
 
 velocity_smoother:
