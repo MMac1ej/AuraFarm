@@ -37,7 +37,7 @@ The map files (.yaml and .pgm) need to be stored in the home catalogue.
 
 ## Simulation only
 
-> Make sure the Docker container is running and every terminal is attached to it (`docker exec -it turtlebot3_container bash`) before starting.
+> Make sure the Docker container is running and every terminal is attached to it before starting.
 
 Sourcing (every terminal):
 ```bash
